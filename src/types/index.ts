@@ -114,3 +114,41 @@ export interface ImportResult {
 export type ReviewNotesMap = Record<string, string>;
 
 export type ChecklistStatusMap = Record<string, ChecklistStatus>;
+
+export interface ReviewSnapshot {
+  id: string;
+  createdAt: string;
+  overallScore: number;
+  summary: string;
+  narrativeCount: number;
+  rhythmCount: number;
+  foreshadowUnresolvedCount: number;
+  noteCount: number;
+  todoCount: number;
+  adoptedCount: number;
+  deferredCount: number;
+  totalIssueCount: number;
+  reviewNotes: ReviewNotesMap;
+  checklistStatus: ChecklistStatusMap;
+}
+
+export interface FieldMapping {
+  sourceKey: string;
+  targetKey: string;
+  label: string;
+  sampleValue?: string;
+}
+
+export interface ImportPreview {
+  floors: ImportedFloor[];
+  fieldMappings: FieldMapping[];
+  unmappedKeys: string[];
+  stats: {
+    floorCount: number;
+    roomCount: number;
+    fieldsDetected: number;
+    fieldsMapped: number;
+  };
+}
+
+export type ImportConfirmedMappings = Record<string, string>;

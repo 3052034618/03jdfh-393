@@ -80,7 +80,7 @@ export default function ChecklistPage() {
       if (statusFilter !== 'all' && st !== statusFilter) return false;
       return true;
     });
-  }, [checklist, priorityFilter, categoryFilter, statusFilter, getChecklistItemStatus]);
+  }, [checklist, priorityFilter, categoryFilter, statusFilter, checklistStatus, getChecklistItemStatus]);
 
   const stats = useMemo(() => {
     let todoCount = 0;
@@ -103,7 +103,7 @@ export default function ChecklistPage() {
       rhythm: checklist.filter((i) => i.category === 'rhythm').length,
       foreshadow: checklist.filter((i) => i.category === 'foreshadow').length,
     };
-  }, [checklist, getChecklistItemStatus]);
+  }, [checklist, checklistStatus, getChecklistItemStatus]);
 
   const handleCopy = async (itemId: string, text: string) => {
     try {

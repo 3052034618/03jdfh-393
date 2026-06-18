@@ -32,8 +32,16 @@ const spaceTypeLabel: Record<string, string> = {
   staircase: '楼梯间',
 };
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 10);
+function simpleHash(str: string): string {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  }
+  return (h >>> 0).toString(36);
+}
+
+function stableId(prefix: string, ...parts: string[]): string {
+  return `${prefix}-${simpleHash(parts.join('|'))}`;
 }
 
 export function getAllRoomsOrdered(floors: { rooms: Room[] }[]): Room[] {
@@ -91,7 +99,7 @@ export function analyzeNarrative(rooms: Room[]): NarrativeIssue[] {
       const priority: Priority = emotionJump >= 4 ? 'critical' : missingEvidence.length >= 2 ? 'high' : 'medium';
 
       issues.push({
-        id: generateId(),
+        id: stableId('n', current.name, next.name, String(emotionJump)),
         fromRoom: current.name,
         toRoom: next.name,
         fromRoomId: current.id,
@@ -121,7 +129,7 @@ export function analyzeRhythm(rooms: Room[]): RhythmIssue[] {
     } else {
       if (narrowStreak.length >= 3) {
         issues.push({
-          id: generateId(),
+          id: stableId('r', 'narrow', narrowStreak.map((r) => r.name).join(',')),
           rooms: narrowStreak.map((r) => r.name),
           roomIds: narrowStreak.map((r) => r.id),
           description: `连续 ${narrowStreak.length} 个狭窄/走廊空间，易造成玩家空间疲劳与感官麻木`,
@@ -138,7 +146,7 @@ export function analyzeRhythm(rooms: Room[]): RhythmIssue[] {
     } else {
       if (oppressionStreak.length >= 3) {
         issues.push({
-          id: generateId(),
+          id: stableId('r', 'oppression', oppressionStreak.map((r) => r.name).join(',')),
           rooms: oppressionStreak.map((r) => r.name),
           roomIds: oppressionStreak.map((r) => r.id),
           description: `连续 ${oppressionStreak.length} 个房间保持高强度压迫感，玩家感官阈值会迅速上升，后续恐怖效果递减`,
@@ -153,7 +161,7 @@ export function analyzeRhythm(rooms: Room[]): RhythmIssue[] {
 
   if (narrowStreak.length >= 3) {
     issues.push({
-      id: generateId(),
+      id: stableId('r', 'narrow-tail', narrowStreak.map((r) => r.name).join(',')),
       rooms: narrowStreak.map((r) => r.name),
       roomIds: narrowStreak.map((r) => r.id),
       description: `连续 ${narrowStreak.length} 个狭窄/走廊空间，易造成玩家空间疲劳与感官麻木`,
@@ -165,7 +173,7 @@ export function analyzeRhythm(rooms: Room[]): RhythmIssue[] {
 
   if (oppressionStreak.length >= 3) {
     issues.push({
-      id: generateId(),
+      id: stableId('r', 'oppression-tail', oppressionStreak.map((r) => r.name).join(',')),
       rooms: oppressionStreak.map((r) => r.name),
       roomIds: oppressionStreak.map((r) => r.id),
       description: `连续 ${oppressionStreak.length} 个房间保持高强度压迫感，玩家感官阈值会迅速上升`,
@@ -183,7 +191,7 @@ export function analyzeRhythm(rooms: Room[]): RhythmIssue[] {
   }
   if (rooms.length > 5 && alternationCount < Math.floor(rooms.length / 3)) {
     issues.push({
-      id: generateId(),
+      id: stableId('r', 'flat', String(rooms.length), String(alternationCount)),
       rooms: rooms.map((r) => r.name),
       roomIds: rooms.map((r) => r.id),
       description: `整体心理状态变化过于平缓，缺乏起伏曲线，玩家容易陷入审美疲劳`,
@@ -270,7 +278,7 @@ export function analyzeForeshadow(rooms: Room[]): ForeshadowItem[] {
     }
 
     items.push({
-      id: generateId(),
+      id: stableId('f', element, firstOccurrence.room.name, String(occurrences.length)),
       element,
       introducedIn: firstOccurrence.room.name,
       introducedInId: firstOccurrence.room.id,

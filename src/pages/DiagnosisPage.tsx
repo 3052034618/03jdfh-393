@@ -16,10 +16,15 @@ import {
   MessageSquare,
   ChevronDown,
   ChevronUp,
+  Save,
+  History,
+  Trash2,
+  Clock,
+  X,
 } from 'lucide-react';
 import { useBlueprintStore } from '@/store/blueprintStore';
 import { getEmotionCurve, emotionLabel, spaceTypeLabel } from '@/utils/diagnosis';
-import type { Priority, ForeshadowStatus } from '@/types';
+import type { Priority, ForeshadowStatus, ReviewSnapshot } from '@/types';
 import { cn } from '@/lib/utils';
 import EmotionCurveChart from '@/components/EmotionCurveChart';
 import {
@@ -112,11 +117,17 @@ export default function DiagnosisPage() {
     reviewNotes,
     setReviewNote,
     checklistStatus,
+    reviewSnapshots,
+    saveReviewSnapshot,
+    deleteReviewSnapshot,
   } = useBlueprintStore();
   const allRooms = getAllRooms();
   const diagnosis = useMemo(() => getDiagnosis(), [getDiagnosis]);
   const checklist = useMemo(() => getChecklist(), [getChecklist]);
   const emotionPoints = useMemo(() => getEmotionCurve(allRooms), [allRooms]);
+
+  const [showSnapshots, setShowSnapshots] = useState(false);
+  const [viewingSnapshot, setViewingSnapshot] = useState<ReviewSnapshot | null>(null);
 
   const scoreColor =
     diagnosis.overallScore >= 85
@@ -165,7 +176,29 @@ export default function DiagnosisPage() {
               基于录入的空间蓝图，从叙事连贯性、恐怖节奏、伏笔回收三个维度进行专业评审。
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => saveReviewSnapshot()}
+              className="btn-secondary text-xs inline-flex items-center gap-1.5"
+            >
+              <Save className="w-3.5 h-3.5" />
+              保存版本
+            </button>
+            <button
+              onClick={() => setShowSnapshots(!showSnapshots)}
+              className={cn(
+                'btn-secondary text-xs inline-flex items-center gap-1.5',
+                showSnapshots && 'border-accent-gold/50 text-accent-gold'
+              )}
+            >
+              <History className="w-3.5 h-3.5" />
+              历史版本
+              {reviewSnapshots.length > 0 && (
+                <span className="ml-0.5 bg-accent-gold/20 text-accent-gold px-1.5 py-0 text-[10px] font-bold">
+                  {reviewSnapshots.length}
+                </span>
+              )}
+            </button>
             <button
               onClick={handleExportMarkdown}
               className="btn-secondary text-xs inline-flex items-center gap-1.5"
@@ -245,6 +278,152 @@ export default function DiagnosisPage() {
             </div>
           </div>
         </div>
+
+        {showSnapshots && (
+          <div className="card-panel p-6 mb-8 animate-slideUp">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="section-title flex items-center gap-2">
+                <History className="w-5 h-5" />
+                评审会版本记录
+              </h3>
+              <span className="text-xs text-text-muted font-mono">
+                最多保留 50 条
+              </span>
+            </div>
+            {reviewSnapshots.length === 0 ? (
+              <div className="py-6 text-center text-text-muted text-sm">
+                尚未保存过评审版本。点击上方「保存版本」记录当前报告快照。
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {reviewSnapshots.map((snap) => (
+                  <div
+                    key={snap.id}
+                    className="p-4 bg-bg-tertiary/50 border border-border-subtle flex items-center gap-4 hover:border-accent-gold/30 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Clock className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                        <span className="text-sm text-text-primary font-mono">
+                          {new Date(snap.createdAt).toLocaleString('zh-CN')}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-3 text-xs text-text-muted font-mono">
+                        <span>指数 {snap.overallScore}</span>
+                        <span>叙事 {snap.narrativeCount}</span>
+                        <span>节奏 {snap.rhythmCount}</span>
+                        <span>伏笔待回收 {snap.foreshadowUnresolvedCount}</span>
+                        <span className="text-accent-gold">备注 {snap.noteCount}</span>
+                        <span>待处理 {snap.todoCount}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setViewingSnapshot(snap)}
+                        className="btn-secondary text-xs px-3 py-1.5"
+                      >
+                        查看
+                      </button>
+                      <button
+                        onClick={() => deleteReviewSnapshot(snap.id)}
+                        className="p-1.5 text-text-muted hover:text-accent-crimsonLight transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {viewingSnapshot && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-bg-secondary border border-border-strong w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl">
+              <div className="p-5 border-b border-border-subtle flex items-center justify-between">
+                <div>
+                  <h3 className="font-display text-lg text-accent-gold flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    版本详情
+                  </h3>
+                  <p className="text-xs text-text-muted mt-1 font-mono">
+                    {new Date(viewingSnapshot.createdAt).toLocaleString('zh-CN')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setViewingSnapshot(null)}
+                  className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="card-panel p-3">
+                    <p className="text-xs text-text-muted mb-1">叙事指数</p>
+                    <p className={cn(
+                      'text-2xl font-display font-bold',
+                      viewingSnapshot.overallScore >= 70 ? 'text-status-low' : 'text-accent-crimsonLight'
+                    )}>
+                      {viewingSnapshot.overallScore}
+                    </p>
+                  </div>
+                  <div className="card-panel p-3">
+                    <p className="text-xs text-text-muted mb-1">总问题数</p>
+                    <p className="text-2xl font-display font-bold text-text-primary">
+                      {viewingSnapshot.totalIssueCount}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="card-panel p-3 text-center">
+                    <p className="text-xs text-text-muted mb-1">叙事断层</p>
+                    <p className="text-lg font-mono text-accent-crimsonLight">{viewingSnapshot.narrativeCount}</p>
+                  </div>
+                  <div className="card-panel p-3 text-center">
+                    <p className="text-xs text-text-muted mb-1">节奏问题</p>
+                    <p className="text-lg font-mono text-status-high">{viewingSnapshot.rhythmCount}</p>
+                  </div>
+                  <div className="card-panel p-3 text-center">
+                    <p className="text-xs text-text-muted mb-1">伏笔待回收</p>
+                    <p className="text-lg font-mono text-status-medium">{viewingSnapshot.foreshadowUnresolvedCount}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 border-l-2 border-accent-crimson bg-accent-crimson/5">
+                    <p className="text-xs text-text-muted mb-0.5">待处理</p>
+                    <p className="text-lg font-mono text-accent-crimsonLight">{viewingSnapshot.todoCount}</p>
+                  </div>
+                  <div className="p-3 border-l-2 border-status-low bg-status-low/5">
+                    <p className="text-xs text-text-muted mb-0.5">已采纳</p>
+                    <p className="text-lg font-mono text-status-low">{viewingSnapshot.adoptedCount}</p>
+                  </div>
+                  <div className="p-3 border-l-2 border-status-medium bg-status-medium/5">
+                    <p className="text-xs text-text-muted mb-0.5">暂缓</p>
+                    <p className="text-lg font-mono text-status-medium">{viewingSnapshot.deferredCount}</p>
+                  </div>
+                </div>
+                <div className="card-panel p-3">
+                  <p className="text-xs text-text-muted mb-1">评审备注</p>
+                  <p className="text-sm text-accent-gold">{viewingSnapshot.noteCount} 条已填写</p>
+                </div>
+                <div className="card-panel p-3">
+                  <p className="text-xs text-text-muted mb-2">评审小结</p>
+                  <p className="text-sm text-text-secondary leading-relaxed">{viewingSnapshot.summary}</p>
+                </div>
+              </div>
+              <div className="p-5 border-t border-border-subtle flex justify-end">
+                <button
+                  onClick={() => setViewingSnapshot(null)}
+                  className="btn-primary"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-8">
           <section className="card-panel p-6 animate-slideUp">

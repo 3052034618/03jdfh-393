@@ -12,6 +12,8 @@ import type {
   ReviewNotesMap,
   ChecklistStatusMap,
   Priority,
+  FieldMapping,
+  ImportConfirmedMappings,
 } from '@/types';
 import type { NarrativeIssue, RhythmIssue, ForeshadowItem } from '@/types';
 import { emotionLabel, spaceTypeLabel } from './diagnosis';
@@ -194,6 +196,169 @@ export function validateAndImportBlueprint(raw: unknown): ImportResult {
   }
 
   return { success: true, data: floors, warnings };
+}
+
+const ROOM_FIELD_ALIASES: { keys: string[]; target: string; label: string }[] = [
+  { keys: ['name', 'roomName', 'room_name', 'title', '房间名', '房名'], target: 'name', label: '房间名称' },
+  { keys: ['mainEvent', 'main_event', 'event', '事件', '主要事件', 'description'], target: 'mainEvent', label: '主要事件' },
+  { keys: ['visibleObjects', 'visible_objects', 'objects', 'items', 'props', '物件', '可见物件', 'roomObjects'], target: 'visibleObjects', label: '可见物件' },
+  { keys: ['emotionState', 'emotion_state', 'emotion', 'mood', '心理', '情绪', '心理状态'], target: 'emotionState', label: '心理状态' },
+  { keys: ['spaceType', 'space_type', 'space', 'type', '空间类型', '空间'], target: 'spaceType', label: '空间类型' },
+  { keys: ['order', 'index', 'sort', 'seq', '顺序'], target: 'order', label: '排序' },
+];
+
+const FLOOR_FIELD_ALIASES: { keys: string[]; target: string; label: string }[] = [
+  { keys: ['name', 'floorName', 'floor_name', '楼层名', '楼层'], target: 'name', label: '楼层名称' },
+  { keys: ['rooms', 'roomList', 'room_list', 'roomsList', 'room_list', '房间列表', 'roomItems'], target: 'rooms', label: '房间列表' },
+  { keys: ['order', 'index', 'sort', 'seq'], target: 'order', label: '排序' },
+];
+
+export function detectFieldMappings(raw: unknown): {
+  mappings: FieldMapping[];
+  unmappedKeys: string[];
+  rawFloors: ImportedFloor[];
+} {
+  const mappings: FieldMapping[] = [];
+  const mappedSourceKeys = new Set<string>();
+
+  if (!raw || typeof raw !== 'object') return { mappings: [], unmappedKeys: [], rawFloors: [] };
+  const data = raw as ImportedBlueprint;
+  if (!Array.isArray(data.floors) || data.floors.length === 0) {
+    return { mappings: [], unmappedKeys: [], rawFloors: [] };
+  }
+
+  const firstFloor = data.floors[0] as Record<string, unknown>;
+  const floorKeys = Object.keys(firstFloor);
+
+  FLOOR_FIELD_ALIASES.forEach((alias) => {
+    for (const key of floorKeys) {
+      if (alias.keys.includes(key)) {
+        mappings.push({
+          sourceKey: key,
+          targetKey: alias.target,
+          label: alias.label,
+          sampleValue: key === alias.target
+            ? undefined
+            : truncateSample(firstFloor[key]),
+        });
+        mappedSourceKeys.add(key);
+        break;
+      }
+    }
+  });
+
+  const firstFloorData = data.floors[0];
+  const firstRooms = Array.isArray(firstFloorData.rooms) ? firstFloorData.rooms : [];
+  if (firstRooms.length > 0) {
+    const firstRoom = firstRooms[0] as Record<string, unknown>;
+    const roomKeys = Object.keys(firstRoom);
+
+    ROOM_FIELD_ALIASES.forEach((alias) => {
+      for (const key of roomKeys) {
+        if (alias.keys.includes(key)) {
+          mappings.push({
+            sourceKey: key,
+            targetKey: alias.target,
+            label: alias.label,
+            sampleValue: key === alias.target
+              ? undefined
+              : truncateSample(firstRoom[key]),
+          });
+          mappedSourceKeys.add(key);
+          break;
+        }
+      }
+    });
+
+    const allRoomKeys = new Set<string>();
+    firstRooms.forEach((r: unknown) => {
+      if (typeof r === 'object' && r !== null) {
+        Object.keys(r as Record<string, unknown>).forEach((k) => allRoomKeys.add(k));
+      }
+    });
+    const unmappedKeys = Array.from(allRoomKeys).filter((k) => !mappedSourceKeys.has(k));
+    return { mappings, unmappedKeys, rawFloors: data.floors };
+  }
+
+  const unmappedKeys = floorKeys.filter((k) => !mappedSourceKeys.has(k));
+  return { mappings, unmappedKeys, rawFloors: data.floors };
+}
+
+function truncateSample(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  if (Array.isArray(val)) {
+    const items = val.map((v) => String(v).trim()).filter((v) => v);
+    return items.length > 2 ? `${items.slice(0, 2).join(', ')}...` : items.join(', ');
+  }
+  const s = String(val).trim();
+  return s.length > 40 ? s.slice(0, 40) + '...' : s;
+}
+
+function applyMappingsToFloors(
+  rawFloors: ImportedFloor[],
+  mappings: ImportConfirmedMappings
+): ImportedFloor[] {
+  const roomKeyMap: Record<string, string> = {};
+  const floorKeyMap: Record<string, string> = {};
+
+  Object.entries(mappings).forEach(([sourceKey, targetKey]) => {
+    const isFloorAlias = FLOOR_FIELD_ALIASES.some((a) => a.keys.includes(sourceKey));
+    if (isFloorAlias) {
+      floorKeyMap[sourceKey] = targetKey;
+    } else {
+      roomKeyMap[sourceKey] = targetKey;
+    }
+  });
+
+  return rawFloors.map((rawFloor) => {
+    const mappedFloor: Record<string, unknown> = {};
+    Object.entries(rawFloor as unknown as Record<string, unknown>).forEach(([key, val]) => {
+      const targetKey = floorKeyMap[key] || key;
+      if (targetKey === 'rooms' && !Array.isArray(val)) {
+        mappedFloor.rooms = [];
+      } else {
+        mappedFloor[targetKey] = val;
+      }
+    });
+
+    const rawRooms = Array.isArray(rawFloor.rooms) ? rawFloor.rooms : [];
+    mappedFloor.rooms = rawRooms.map((rawRoom) => {
+      const mappedRoom: Record<string, unknown> = {};
+      Object.entries(rawRoom as unknown as Record<string, unknown>).forEach(([key, val]) => {
+        const targetKey = roomKeyMap[key] || key;
+        if (targetKey === 'visibleObjects' && !Array.isArray(val)) {
+          if (typeof val === 'string') {
+            mappedRoom.visibleObjects = val.split(/[,，、;；]/).map((s: string) => s.trim()).filter(Boolean);
+          } else {
+            mappedRoom.visibleObjects = [];
+          }
+        } else {
+          mappedRoom[targetKey] = val;
+        }
+      });
+      return mappedRoom as ImportedRoom;
+    });
+
+    return mappedFloor as ImportedFloor;
+  });
+}
+
+export function validateAndImportBlueprintWithMappings(
+  raw: unknown,
+  mappings?: ImportConfirmedMappings
+): ImportResult {
+  if (!mappings || Object.keys(mappings).length === 0) {
+    return validateAndImportBlueprint(raw);
+  }
+
+  const data = raw as ImportedBlueprint;
+  if (!data.floors) {
+    return { success: false, errors: ['缺少必填字段：floors（楼层数组）'] };
+  }
+
+  const mappedFloors = applyMappingsToFloors(data.floors, mappings);
+  const mappedBlueprint = { ...data, floors: mappedFloors };
+  return validateAndImportBlueprint(mappedBlueprint);
 }
 
 export function exportBlueprintToJSON(floors: Floor[]): string {

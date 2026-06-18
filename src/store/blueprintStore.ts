@@ -14,6 +14,8 @@ import type {
   ChecklistStatusMap,
   ChecklistStatus,
   ImportResult,
+  ReviewSnapshot,
+  ImportConfirmedMappings,
 } from '@/types';
 import {
   getAllRoomsOrdered,
@@ -24,7 +26,7 @@ import {
   generateDiagnosis,
 } from '@/utils/diagnosis';
 import { sampleFloors } from '@/data/sampleData';
-import { validateAndImportBlueprint } from '@/utils/importExport';
+import { validateAndImportBlueprintWithMappings } from '@/utils/importExport';
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 10);
@@ -35,6 +37,7 @@ interface BlueprintStore {
   selectedRoomId: string | null;
   reviewNotes: ReviewNotesMap;
   checklistStatus: ChecklistStatusMap;
+  reviewSnapshots: ReviewSnapshot[];
 
   addFloor: (name: string) => void;
   removeFloor: (id: string) => void;
@@ -56,8 +59,11 @@ interface BlueprintStore {
   setChecklistItemStatus: (itemId: string, status: ChecklistStatus) => void;
   getChecklistItemStatus: (itemId: string) => ChecklistStatus;
 
-  importJSONBlueprint: (rawJSON: string) => ImportResult;
+  importJSONBlueprint: (rawJSON: string, mappings?: ImportConfirmedMappings) => ImportResult;
   importBlueprintFromFloors: (floors: Floor[]) => void;
+
+  saveReviewSnapshot: () => ReviewSnapshot;
+  deleteReviewSnapshot: (id: string) => void;
 
   getAllRooms: () => Room[];
   getNarrativeIssues: () => NarrativeIssue[];
@@ -77,6 +83,7 @@ export const useBlueprintStore = create<BlueprintStore>()(
       selectedRoomId: null,
       reviewNotes: {},
       checklistStatus: {},
+      reviewSnapshots: [],
 
       addFloor: (name) =>
         set((state) => {
@@ -173,10 +180,10 @@ export const useBlueprintStore = create<BlueprintStore>()(
 
       getChecklistItemStatus: (itemId) => get().checklistStatus[itemId] || 'todo',
 
-      importJSONBlueprint: (rawJSON) => {
+      importJSONBlueprint: (rawJSON, mappings) => {
         try {
           const parsed = JSON.parse(rawJSON);
-          const result = validateAndImportBlueprint(parsed);
+          const result = validateAndImportBlueprintWithMappings(parsed, mappings);
           if (result.success && result.data) {
             set({
               floors: result.data,
@@ -199,6 +206,54 @@ export const useBlueprintStore = create<BlueprintStore>()(
           reviewNotes: {},
           checklistStatus: {},
         }),
+
+      saveReviewSnapshot: () => {
+        const state = get();
+        const diagnosis = state.getDiagnosis();
+        const checklist = state.getChecklist();
+        const notes = state.reviewNotes;
+        const statuses = state.checklistStatus;
+
+        let todoCount = 0;
+        let adoptedCount = 0;
+        let deferredCount = 0;
+        checklist.forEach((it) => {
+          const st = statuses[it.id] || 'todo';
+          if (st === 'todo') todoCount++;
+          else if (st === 'adopted') adoptedCount++;
+          else deferredCount++;
+        });
+
+        const snapshot: ReviewSnapshot = {
+          id: generateId(),
+          createdAt: new Date().toISOString(),
+          overallScore: diagnosis.overallScore,
+          summary: diagnosis.summary,
+          narrativeCount: diagnosis.narrativeIssues.length,
+          rhythmCount: diagnosis.rhythmIssues.length,
+          foreshadowUnresolvedCount: diagnosis.foreshadowItems.filter(
+            (f) => f.status !== 'resolved'
+          ).length,
+          noteCount: Object.values(notes).filter((n) => n.trim().length > 0).length,
+          todoCount,
+          adoptedCount,
+          deferredCount,
+          totalIssueCount: checklist.length,
+          reviewNotes: { ...notes },
+          checklistStatus: { ...statuses },
+        };
+
+        set((state) => ({
+          reviewSnapshots: [snapshot, ...state.reviewSnapshots].slice(0, 50),
+        }));
+
+        return snapshot;
+      },
+
+      deleteReviewSnapshot: (id) =>
+        set((state) => ({
+          reviewSnapshots: state.reviewSnapshots.filter((s) => s.id !== id),
+        })),
 
       getAllRooms: () => getAllRoomsOrdered(get().floors),
 
@@ -244,6 +299,7 @@ export const useBlueprintStore = create<BlueprintStore>()(
         floors: state.floors,
         reviewNotes: state.reviewNotes,
         checklistStatus: state.checklistStatus,
+        reviewSnapshots: state.reviewSnapshots,
       }),
     }
   )
