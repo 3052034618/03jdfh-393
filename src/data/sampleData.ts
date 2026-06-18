@@ -1,0 +1,81 @@
+import type { Floor } from '@/types';
+
+export const sampleFloors: Floor[] = [
+  {
+    id: 'floor-1',
+    name: '一层 · 主屋',
+    order: 0,
+    rooms: [
+      {
+        id: 'room-1',
+        name: '入口前厅',
+        mainEvent: '玩家推门进入，身后门自动锁死，墙上挂着一幅全家福，其中一个女童的脸被刮掉',
+        visibleObjects: ['全家福照片', '生锈的门把手', '墙洞', '蜡烛'],
+        emotionState: 'unease',
+        spaceType: 'normal',
+        order: 0,
+      },
+      {
+        id: 'room-2',
+        name: '走廊',
+        mainEvent: '狭长走廊两侧的门逐一自动关闭，尽头传来女童的笑声',
+        visibleObjects: ['血迹脚印', '半开的房门', '吊灯'],
+        emotionState: 'doubt',
+        spaceType: 'corridor',
+        order: 1,
+      },
+      {
+        id: 'room-3',
+        name: '祠堂',
+        mainEvent: '家族祠堂正中的牌位突然全部倒下，地面浮现出一个玩偶',
+        visibleObjects: ['牌位', '玩偶', '香炉', '供桌'],
+        emotionState: 'oppression',
+        spaceType: 'wide',
+        order: 2,
+      },
+      {
+        id: 'room-4',
+        name: '洗衣房',
+        mainEvent: '玩家在洗衣机中发现染血的女童衣物，窗外有人影一闪而过',
+        visibleObjects: ['洗衣机', '女童衣服', '血渍', '窗户'],
+        emotionState: 'oppression',
+        spaceType: 'narrow',
+        order: 3,
+      },
+      {
+        id: 'room-5',
+        name: '楼梯间',
+        mainEvent: '上楼的楼梯不断向下延伸，玩家每次回头身后都多一个玩偶',
+        visibleObjects: ['玩偶', '楼梯扶手', '墙洞'],
+        emotionState: 'oppression',
+        spaceType: 'staircase',
+        order: 4,
+      },
+    ],
+  },
+  {
+    id: 'floor-2',
+    name: '二层 · 密区',
+    order: 1,
+    rooms: [
+      {
+        id: 'room-6',
+        name: '儿童房',
+        mainEvent: '房间里的木马自己摇晃，梳妆台上放着一本日记，记录着女童被锁在地下室的经过',
+        visibleObjects: ['木马', '日记', '梳妆台', '布娃娃'],
+        emotionState: 'doubt',
+        spaceType: 'normal',
+        order: 0,
+      },
+      {
+        id: 'room-7',
+        name: '结局密室',
+        mainEvent: '真相揭露：女童被家族献祭，玩家需要选择是否带走她的遗骸',
+        visibleObjects: ['女童遗骸', '祭坛', '面具'],
+        emotionState: 'relief',
+        spaceType: 'narrow',
+        order: 1,
+      },
+    ],
+  },
+];

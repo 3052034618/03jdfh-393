@@ -1,0 +1,147 @@
+@import url('https://fonts.googleapis.com/css2?family=BIZ+UDPMincho:wght@400;700&family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #e8e6e3;
+  background-color: #0f0f12;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+body {
+  position: relative;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.1 0 0 0 0 0.1 0 0 0 0 0.12 0 0 0 0.08 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 1;
+}
+
+#root {
+  position: relative;
+  z-index: 2;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a1f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3d3d4a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4f4f60;
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-accent-crimson text-text-primary border border-accent-crimsonLight 
+           transition-all duration-200 hover:shadow-crimsonGlow hover:bg-accent-crimsonLight 
+           focus:outline-none focus:ring-1 focus:ring-accent-crimsonLight font-medium;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-transparent text-text-secondary border border-border-strong 
+           transition-all duration-200 hover:border-accent-gold hover:text-accent-gold 
+           focus:outline-none focus:ring-1 focus:ring-accent-gold;
+  }
+
+  .btn-ghost {
+    @apply px-3 py-1.5 text-text-secondary transition-all duration-200 hover:text-accent-gold 
+           hover:bg-bg-tertiary rounded-none;
+  }
+
+  .card-panel {
+    @apply bg-bg-secondary border border-border-subtle relative;
+  }
+
+  .card-panel::before {
+    content: '';
+    @apply absolute top-0 left-0 w-px h-full bg-gradient-to-b from-accent-crimson/50 via-transparent to-transparent;
+  }
+
+  .input-field {
+    @apply w-full px-3 py-2 bg-bg-tertiary border border-border-subtle text-text-primary 
+           placeholder-text-muted focus:outline-none focus:border-accent-gold/60 
+           focus:ring-1 focus:ring-accent-gold/30 transition-all;
+  }
+
+  .section-title {
+    @apply font-display text-xl tracking-wide text-accent-gold border-b border-border-subtle pb-2 mb-4;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 text-text-secondary transition-all duration-200
+           border-l-2 border-transparent hover:bg-bg-tertiary hover:text-text-primary cursor-pointer;
+  }
+
+  .nav-item.active {
+    @apply bg-bg-tertiary text-accent-gold border-accent-crimson;
+  }
+
+  .tag {
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-mono border;
+  }
+
+  .tag-unease {
+    @apply bg-emotion-unease/15 text-emotion-unease border-emotion-unease/40;
+  }
+
+  .tag-doubt {
+    @apply bg-emotion-doubt/15 text-emotion-doubt border-emotion-doubt/40;
+  }
+
+  .tag-oppression {
+    @apply bg-emotion-oppression/15 text-accent-crimsonLight border-accent-crimson/40;
+  }
+
+  .tag-relief {
+    @apply bg-emotion-relief/15 text-emotion-relief border-emotion-relief/40;
+  }
+
+  .priority-critical {
+    @apply bg-status-critical/15 text-status-critical border-status-critical/40;
+  }
+
+  .priority-high {
+    @apply bg-status-high/15 text-status-high border-status-high/40;
+  }
+
+  .priority-medium {
+    @apply bg-status-medium/15 text-status-medium border-status-medium/40;
+  }
+
+  .priority-low {
+    @apply bg-status-low/15 text-status-low border-status-low/40;
+  }
+}
