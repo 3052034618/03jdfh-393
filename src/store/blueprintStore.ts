@@ -10,6 +10,10 @@ import type {
   ForeshadowItem,
   ChecklistItem,
   DiagnosisReport,
+  ReviewNotesMap,
+  ChecklistStatusMap,
+  ChecklistStatus,
+  ImportResult,
 } from '@/types';
 import {
   getAllRoomsOrdered,
@@ -20,6 +24,7 @@ import {
   generateDiagnosis,
 } from '@/utils/diagnosis';
 import { sampleFloors } from '@/data/sampleData';
+import { validateAndImportBlueprint } from '@/utils/importExport';
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 10);
@@ -28,6 +33,8 @@ function generateId(): string {
 interface BlueprintStore {
   floors: Floor[];
   selectedRoomId: string | null;
+  reviewNotes: ReviewNotesMap;
+  checklistStatus: ChecklistStatusMap;
 
   addFloor: (name: string) => void;
   removeFloor: (id: string) => void;
@@ -42,6 +49,15 @@ interface BlueprintStore {
   reorderRooms: (floorId: string, roomIdsInOrder: string[]) => void;
 
   selectRoom: (roomId: string | null) => void;
+
+  setReviewNote: (issueId: string, note: string) => void;
+  getReviewNote: (issueId: string) => string;
+
+  setChecklistItemStatus: (itemId: string, status: ChecklistStatus) => void;
+  getChecklistItemStatus: (itemId: string) => ChecklistStatus;
+
+  importJSONBlueprint: (rawJSON: string) => ImportResult;
+  importBlueprintFromFloors: (floors: Floor[]) => void;
 
   getAllRooms: () => Room[];
   getNarrativeIssues: () => NarrativeIssue[];
@@ -59,6 +75,8 @@ export const useBlueprintStore = create<BlueprintStore>()(
     (set, get) => ({
       floors: [],
       selectedRoomId: null,
+      reviewNotes: {},
+      checklistStatus: {},
 
       addFloor: (name) =>
         set((state) => {
@@ -141,6 +159,47 @@ export const useBlueprintStore = create<BlueprintStore>()(
 
       selectRoom: (roomId) => set({ selectedRoomId: roomId }),
 
+      setReviewNote: (issueId, note) =>
+        set((state) => ({
+          reviewNotes: { ...state.reviewNotes, [issueId]: note },
+        })),
+
+      getReviewNote: (issueId) => get().reviewNotes[issueId] || '',
+
+      setChecklistItemStatus: (itemId, status) =>
+        set((state) => ({
+          checklistStatus: { ...state.checklistStatus, [itemId]: status },
+        })),
+
+      getChecklistItemStatus: (itemId) => get().checklistStatus[itemId] || 'todo',
+
+      importJSONBlueprint: (rawJSON) => {
+        try {
+          const parsed = JSON.parse(rawJSON);
+          const result = validateAndImportBlueprint(parsed);
+          if (result.success && result.data) {
+            set({
+              floors: result.data,
+              selectedRoomId: null,
+              reviewNotes: {},
+              checklistStatus: {},
+            });
+          }
+          return result;
+        } catch (e: unknown) {
+          const msg = e instanceof SyntaxError ? `JSON 语法错误：${e.message}` : '文件解析失败：未知错误';
+          return { success: false, errors: [msg] };
+        }
+      },
+
+      importBlueprintFromFloors: (importedFloors) =>
+        set({
+          floors: importedFloors,
+          selectedRoomId: null,
+          reviewNotes: {},
+          checklistStatus: {},
+        }),
+
       getAllRooms: () => getAllRoomsOrdered(get().floors),
 
       getNarrativeIssues: () => analyzeNarrative(get().getAllRooms()),
@@ -165,12 +224,27 @@ export const useBlueprintStore = create<BlueprintStore>()(
         );
       },
 
-      loadSampleData: () => set({ floors: sampleFloors, selectedRoomId: null }),
+      loadSampleData: () =>
+        set({
+          floors: sampleFloors,
+          selectedRoomId: null,
+        }),
 
-      clearAll: () => set({ floors: [], selectedRoomId: null }),
+      clearAll: () =>
+        set({
+          floors: [],
+          selectedRoomId: null,
+          reviewNotes: {},
+          checklistStatus: {},
+        }),
     }),
     {
       name: 'haunted-blueprint-store',
+      partialize: (state) => ({
+        floors: state.floors,
+        reviewNotes: state.reviewNotes,
+        checklistStatus: state.checklistStatus,
+      }),
     }
   )
 );
@@ -188,4 +262,14 @@ export const spaceTypeOptions: { value: SpaceType; label: string }[] = [
   { value: 'wide', label: '开阔空间' },
   { value: 'corridor', label: '走廊' },
   { value: 'staircase', label: '楼梯间' },
+];
+
+export const checklistStatusOptions: {
+  value: ChecklistStatus;
+  label: string;
+  icon: 'todo' | 'check' | 'pause';
+}[] = [
+  { value: 'todo', label: '待处理', icon: 'todo' },
+  { value: 'adopted', label: '已采纳', icon: 'check' },
+  { value: 'deferred', label: '暂缓', icon: 'pause' },
 ];

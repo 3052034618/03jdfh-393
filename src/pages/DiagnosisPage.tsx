@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Activity,
@@ -9,12 +9,24 @@ import {
   CircleHelp,
   Target,
   FileWarning,
+  Download,
+  FileText,
+  FileCode,
+  MessageSquarePlus,
+  MessageSquare,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useBlueprintStore } from '@/store/blueprintStore';
 import { getEmotionCurve, emotionLabel, spaceTypeLabel } from '@/utils/diagnosis';
 import type { Priority, ForeshadowStatus } from '@/types';
 import { cn } from '@/lib/utils';
 import EmotionCurveChart from '@/components/EmotionCurveChart';
+import {
+  exportReportToMarkdown,
+  exportReportToText,
+  downloadFile,
+} from '@/utils/importExport';
 
 const priorityLabel: Record<Priority, string> = {
   critical: '严重',
@@ -30,9 +42,7 @@ const foreshadowStatusLabel: Record<ForeshadowStatus, string> = {
 };
 
 function PriorityBadge({ priority }: { priority: Priority }) {
-  return (
-    <span className={cn('tag', `priority-${priority}`)}>{priorityLabel[priority]}</span>
-  );
+  return <span className={cn('tag', `priority-${priority}`)}>{priorityLabel[priority]}</span>;
 }
 
 function StatusBadge({ status }: { status: ForeshadowStatus }) {
@@ -50,20 +60,84 @@ function StatusBadge({ status }: { status: ForeshadowStatus }) {
   );
 }
 
+function ReviewNoteField({
+  issueId,
+  note,
+  onNoteChange,
+}: {
+  issueId: string;
+  note: string;
+  onNoteChange: (id: string, note: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(note.length > 0);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border-subtle">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs text-accent-gold hover:text-accent-goldLight transition-colors"
+      >
+        {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        {note.length > 0 ? (
+          <>
+            <MessageSquare className="w-3.5 h-3.5" />
+            评审备注（已填写）
+          </>
+        ) : (
+          <>
+            <MessageSquarePlus className="w-3.5 h-3.5" />
+            添加评审备注
+          </>
+        )}
+      </button>
+      {expanded && (
+        <textarea
+          value={note}
+          onChange={(e) => onNoteChange(issueId, e.target.value)}
+          placeholder="导演组处理意见：例如「已安排在结局前插入洗衣房过渡空间」「下期迭代补完玩偶线索」"
+          rows={2}
+          className="mt-2 w-full input-field resize-none text-xs leading-relaxed"
+          style={{ borderColor: note.length > 0 ? 'rgba(201, 169, 98, 0.35)' : undefined }}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function DiagnosisPage() {
-  const { getAllRooms, getDiagnosis } = useBlueprintStore();
+  const {
+    getAllRooms,
+    getDiagnosis,
+    getChecklist,
+    reviewNotes,
+    setReviewNote,
+    checklistStatus,
+  } = useBlueprintStore();
   const allRooms = getAllRooms();
   const diagnosis = useMemo(() => getDiagnosis(), [getDiagnosis]);
+  const checklist = useMemo(() => getChecklist(), [getChecklist]);
   const emotionPoints = useMemo(() => getEmotionCurve(allRooms), [allRooms]);
 
   const scoreColor =
     diagnosis.overallScore >= 85
       ? '#5a8a6b'
       : diagnosis.overallScore >= 70
-      ? '#c9a962'
-      : diagnosis.overallScore >= 50
-      ? '#d97a3a'
-      : '#c93d4f';
+        ? '#c9a962'
+        : diagnosis.overallScore >= 50
+          ? '#d97a3a'
+          : '#c93d4f';
+
+  const handleExportMarkdown = () => {
+    const md = exportReportToMarkdown(diagnosis, checklist, reviewNotes, checklistStatus);
+    const date = new Date().toISOString().slice(0, 10);
+    downloadFile(md, `haunted-report-${date}.md`, 'text/markdown');
+  };
+
+  const handleExportText = () => {
+    const txt = exportReportToText(diagnosis, checklist, reviewNotes, checklistStatus);
+    const date = new Date().toISOString().slice(0, 10);
+    downloadFile(txt, `haunted-report-${date}.txt`, 'text/plain');
+  };
 
   if (allRooms.length === 0) {
     return (
@@ -82,24 +156,37 @@ export default function DiagnosisPage() {
   return (
     <div className="min-h-screen overflow-y-auto">
       <div className="p-8 max-w-7xl">
-        <div className="mb-8">
-          <h2 className="font-display text-2xl text-accent-gold tracking-wide mb-2">诊断报告</h2>
-          <p className="text-sm text-text-secondary">
-            基于录入的空间蓝图，从叙事连贯性、恐怖节奏、伏笔回收三个维度进行专业评审。
-          </p>
+        <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="font-display text-2xl text-accent-gold tracking-wide mb-2">
+              诊断报告
+            </h2>
+            <p className="text-sm text-text-secondary">
+              基于录入的空间蓝图，从叙事连贯性、恐怖节奏、伏笔回收三个维度进行专业评审。
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportMarkdown}
+              className="btn-secondary text-xs inline-flex items-center gap-1.5"
+            >
+              <FileCode className="w-3.5 h-3.5" />
+              导出 Markdown
+            </button>
+            <button
+              onClick={handleExportText}
+              className="btn-secondary text-xs inline-flex items-center gap-1.5"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              导出文本
+            </button>
+          </div>
         </div>
 
         <div className="card-panel p-6 mb-8 flex items-center gap-8 animate-fadeIn">
           <div className="relative w-32 h-32 shrink-0">
             <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-              <circle
-                cx="50"
-                cy="50"
-                r="42"
-                fill="none"
-                stroke="#23232b"
-                strokeWidth="8"
-              />
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#23232b" strokeWidth="8" />
               <circle
                 cx="50"
                 cy="50"
@@ -113,10 +200,7 @@ export default function DiagnosisPage() {
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span
-                className="font-display text-4xl font-bold"
-                style={{ color: scoreColor }}
-              >
+              <span className="font-display text-4xl font-bold" style={{ color: scoreColor }}>
                 {diagnosis.overallScore}
               </span>
               <span className="text-[10px] text-text-muted font-mono tracking-widest">
@@ -151,6 +235,13 @@ export default function DiagnosisPage() {
                   {diagnosis.foreshadowItems.filter((f) => f.status !== 'resolved').length}
                 </span>
               </div>
+              <div className="flex items-center gap-1.5">
+                <Download className="w-3.5 h-3.5 text-text-muted" />
+                <span className="text-text-muted">评审备注：</span>
+                <span className="text-text-primary">
+                  {Object.values(reviewNotes).filter((n) => n.trim().length > 0).length}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -177,9 +268,7 @@ export default function DiagnosisPage() {
                   >
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-2 text-sm">
-                        <span className="text-text-secondary font-mono">
-                          {issue.fromRoom}
-                        </span>
+                        <span className="text-text-secondary font-mono">{issue.fromRoom}</span>
                         <ArrowRight className="w-3.5 h-3.5 text-accent-crimsonLight" />
                         <span className="text-text-primary font-medium">{issue.toRoom}</span>
                       </div>
@@ -188,7 +277,10 @@ export default function DiagnosisPage() {
                     <p className="text-sm text-text-primary mb-2">{issue.description}</p>
                     <ul className="space-y-1 mb-3">
                       {issue.missingEvidence.map((ev, i) => (
-                        <li key={i} className="text-xs text-text-secondary flex items-start gap-1.5">
+                        <li
+                          key={i}
+                          className="text-xs text-text-secondary flex items-start gap-1.5"
+                        >
                           <span className="text-accent-crimsonLight mt-0.5">·</span>
                           {ev}
                         </li>
@@ -200,6 +292,11 @@ export default function DiagnosisPage() {
                         <span className="text-text-secondary">{issue.suggestion}</span>
                       </p>
                     </div>
+                    <ReviewNoteField
+                      issueId={issue.id}
+                      note={reviewNotes[issue.id] || ''}
+                      onNoteChange={setReviewNote}
+                    />
                   </div>
                 ))}
               </div>
@@ -227,10 +324,7 @@ export default function DiagnosisPage() {
                 {allRooms.map((room, idx) => {
                   const emotion = emotionLabel[room.emotionState];
                   return (
-                    <div
-                      key={room.id}
-                      className="flex items-center text-xs"
-                    >
+                    <div key={room.id} className="flex items-center text-xs">
                       <div className={cn('px-2 py-1 border tag', `tag-${room.emotionState}`)}>
                         <span className="text-text-muted font-mono mr-1">
                           {String(idx + 1).padStart(2, '0')}
@@ -280,6 +374,11 @@ export default function DiagnosisPage() {
                         <span className="text-text-secondary">{issue.suggestion}</span>
                       </p>
                     </div>
+                    <ReviewNoteField
+                      issueId={issue.id}
+                      note={reviewNotes[issue.id] || ''}
+                      onNoteChange={setReviewNote}
+                    />
                   </div>
                 ))}
               </div>
@@ -302,20 +401,23 @@ export default function DiagnosisPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border-subtle text-left">
-                      <th className="pb-3 pr-4 text-xs font-mono text-text-muted tracking-wider">
+                      <th className="pb-3 pr-4 text-xs font-mono text-text-muted tracking-wider whitespace-nowrap">
                         伏笔元素
                       </th>
-                      <th className="pb-3 pr-4 text-xs font-mono text-text-muted tracking-wider">
+                      <th className="pb-3 pr-4 text-xs font-mono text-text-muted tracking-wider whitespace-nowrap">
                         首次出现
                       </th>
-                      <th className="pb-3 pr-4 text-xs font-mono text-text-muted tracking-wider">
+                      <th className="pb-3 pr-4 text-xs font-mono text-text-muted tracking-wider whitespace-nowrap">
                         回收状态
                       </th>
-                      <th className="pb-3 pr-4 text-xs font-mono text-text-muted tracking-wider">
+                      <th className="pb-3 pr-4 text-xs font-mono text-text-muted tracking-wider whitespace-nowrap">
                         回收位置
                       </th>
-                      <th className="pb-3 text-xs font-mono text-text-muted tracking-wider">
+                      <th className="pb-3 pr-4 text-xs font-mono text-text-muted tracking-wider whitespace-nowrap">
                         优先级
+                      </th>
+                      <th className="pb-3 text-xs font-mono text-text-muted tracking-wider whitespace-nowrap">
+                        评审备注
                       </th>
                     </tr>
                   </thead>
@@ -323,21 +425,38 @@ export default function DiagnosisPage() {
                     {diagnosis.foreshadowItems.map((item, idx) => (
                       <tr
                         key={item.id}
-                        className="border-b border-border-subtle/50 animate-fadeIn"
+                        className="border-b border-border-subtle/50 animate-fadeIn align-top"
                         style={{ animationDelay: `${idx * 40}ms` }}
                       >
                         <td className="py-3 pr-4">
                           <span className="text-text-primary font-medium">{item.element}</span>
                         </td>
-                        <td className="py-3 pr-4 text-text-secondary">{item.introducedIn}</td>
-                        <td className="py-3 pr-4">
+                        <td className="py-3 pr-4 text-text-secondary whitespace-nowrap">
+                          {item.introducedIn}
+                        </td>
+                        <td className="py-3 pr-4 whitespace-nowrap">
                           <StatusBadge status={item.status} />
                         </td>
-                        <td className="py-3 pr-4 text-text-secondary">
+                        <td className="py-3 pr-4 text-text-secondary whitespace-nowrap">
                           {item.resolvedIn || '—'}
                         </td>
-                        <td className="py-3">
+                        <td className="py-3 pr-4 whitespace-nowrap">
                           <PriorityBadge priority={item.priority} />
+                        </td>
+                        <td className="py-3">
+                          <textarea
+                            value={reviewNotes[item.id] || ''}
+                            onChange={(e) => setReviewNote(item.id, e.target.value)}
+                            placeholder="导演组意见..."
+                            rows={1}
+                            className="w-full input-field resize-none text-xs leading-relaxed min-h-[30px]"
+                            style={{
+                              borderColor:
+                                (reviewNotes[item.id] || '').length > 0
+                                  ? 'rgba(201, 169, 98, 0.35)'
+                                  : undefined,
+                            }}
+                          />
                         </td>
                       </tr>
                     ))}

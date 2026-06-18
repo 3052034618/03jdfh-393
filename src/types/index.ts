@@ -2,6 +2,7 @@ export type EmotionState = 'unease' | 'doubt' | 'oppression' | 'relief';
 export type SpaceType = 'narrow' | 'normal' | 'wide' | 'corridor' | 'staircase';
 export type Priority = 'critical' | 'high' | 'medium' | 'low';
 export type IssueCategory = 'narrative' | 'rhythm' | 'foreshadow';
+export type ChecklistStatus = 'todo' | 'adopted' | 'deferred';
 
 export interface Room {
   id: string;
@@ -81,3 +82,35 @@ export interface EmotionPoint {
   value: number;
   index: number;
 }
+
+export interface ImportedRoom {
+  name?: string;
+  mainEvent?: string;
+  visibleObjects?: string[];
+  emotionState?: EmotionState;
+  spaceType?: SpaceType;
+  order?: number;
+}
+
+export interface ImportedFloor {
+  name?: string;
+  order?: number;
+  rooms?: ImportedRoom[];
+}
+
+export interface ImportedBlueprint {
+  floors?: ImportedFloor[];
+  projectName?: string;
+  version?: string;
+}
+
+export interface ImportResult {
+  success: boolean;
+  data?: Floor[];
+  errors?: string[];
+  warnings?: string[];
+}
+
+export type ReviewNotesMap = Record<string, string>;
+
+export type ChecklistStatusMap = Record<string, ChecklistStatus>;
