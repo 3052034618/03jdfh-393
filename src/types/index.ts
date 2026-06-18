@@ -115,6 +115,14 @@ export type ReviewNotesMap = Record<string, string>;
 
 export type ChecklistStatusMap = Record<string, ChecklistStatus>;
 
+export interface IssueActionItem {
+  assignee?: string;
+  dueDate?: string;
+  nextStep?: string;
+}
+
+export type ActionItemsMap = Record<string, IssueActionItem>;
+
 export interface ReviewSnapshot {
   id: string;
   createdAt: string;
@@ -130,10 +138,12 @@ export interface ReviewSnapshot {
   totalIssueCount: number;
   reviewNotes: ReviewNotesMap;
   checklistStatus: ChecklistStatusMap;
+  actionItems: ActionItemsMap;
   meetingTitle?: string;
   attendees?: string;
   meetingConclusion?: string;
   issueRegistry: { id: string; category: IssueCategory; description: string }[];
+  foreshadowRegistry: { id: string; element: string; status: ForeshadowStatus; description: string }[];
 }
 
 export interface SnapshotComparison {
@@ -151,6 +161,13 @@ export interface SnapshotComparison {
     description: string;
     oldNote: string;
     newNote: string;
+  }[];
+  actionChanges: {
+    id: string;
+    description: string;
+    field: 'assignee' | 'dueDate' | 'nextStep';
+    oldValue: string;
+    newValue: string;
   }[];
 }
 

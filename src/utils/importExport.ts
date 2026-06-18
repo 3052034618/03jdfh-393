@@ -712,6 +712,9 @@ export function exportMeetingSummaryToMarkdown(
     if (comparison.noteChanges.length > 0) {
       lines.push(`- **备注更新**：${comparison.noteChanges.length} 项`);
     }
+    if (comparison.actionChanges.length > 0) {
+      lines.push(`- **行动项变更**：${comparison.actionChanges.length} 项`);
+    }
     lines.push('');
 
     if (comparison.newIssues.length > 0) {
@@ -751,6 +754,21 @@ export function exportMeetingSummaryToMarkdown(
         lines.push('');
       });
     }
+
+    if (comparison.actionChanges.length > 0) {
+      const actionLabel: Record<'assignee' | 'dueDate' | 'nextStep', string> = {
+        assignee: '负责人',
+        dueDate: '截止时间',
+        nextStep: '下一步动作',
+      };
+      lines.push('### 行动项变更');
+      lines.push('');
+      comparison.actionChanges.forEach((it, i) => {
+        lines.push(`${i + 1}. ${it.description}`);
+        lines.push(`   - ${actionLabel[it.field]}：${it.oldValue || '（未填写）'} → **${it.newValue || '（已清空）'}**`);
+        lines.push('');
+      });
+    }
   }
 
   lines.push('## 修改清单（按状态）');
@@ -774,6 +792,12 @@ export function exportMeetingSummaryToMarkdown(
       lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
       const note = snapshot.reviewNotes[it.id];
       if (note) lines.push(`   - 评审备注：${note}`);
+      const act = snapshot.actionItems?.[it.id];
+      if (act) {
+        if (act.assignee) lines.push(`   - 负责人：${act.assignee}`);
+        if (act.dueDate) lines.push(`   - 截止：${act.dueDate}`);
+        if (act.nextStep) lines.push(`   - 下一步：${act.nextStep}`);
+      }
       lines.push('');
     });
   }
@@ -787,6 +811,12 @@ export function exportMeetingSummaryToMarkdown(
       lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
       const note = snapshot.reviewNotes[it.id];
       if (note) lines.push(`   - 评审备注：${note}`);
+      const act = snapshot.actionItems?.[it.id];
+      if (act) {
+        if (act.assignee) lines.push(`   - 负责人：${act.assignee}`);
+        if (act.dueDate) lines.push(`   - 截止：${act.dueDate}`);
+        if (act.nextStep) lines.push(`   - 下一步：${act.nextStep}`);
+      }
       lines.push('');
     });
   }
@@ -800,19 +830,63 @@ export function exportMeetingSummaryToMarkdown(
       lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
       const note = snapshot.reviewNotes[it.id];
       if (note) lines.push(`   - 评审备注：${note}`);
+      const act = snapshot.actionItems?.[it.id];
+      if (act) {
+        if (act.assignee) lines.push(`   - 负责人：${act.assignee}`);
+        if (act.dueDate) lines.push(`   - 截止：${act.dueDate}`);
+        if (act.nextStep) lines.push(`   - 下一步：${act.nextStep}`);
+      }
       lines.push('');
     });
   }
 
-  const itemsWithNotes = snapshot.issueRegistry.filter(
+  const actionRows = snapshot.issueRegistry
+    .map((it) => ({ item: it, action: snapshot.actionItems?.[it.id] }))
+    .filter(({ action }) => action && (action.assignee || action.dueDate || action.nextStep));
+  if (actionRows.length > 0) {
+    lines.push('## 行动项汇总（按负责人）');
+    lines.push('');
+    const byAssignee = new Map<string, typeof actionRows>();
+    actionRows.forEach((row) => {
+      const k = (row.action?.assignee || '').trim() || '未分配';
+      if (!byAssignee.has(k)) byAssignee.set(k, []);
+      byAssignee.get(k)!.push(row);
+    });
+    Array.from(byAssignee.entries()).forEach(([assignee, rows]) => {
+      lines.push(`### ${assignee}（${rows.length} 项）`);
+      lines.push('');
+      rows.forEach(({ item, action }, i) => {
+        lines.push(`${i + 1}. ${item.description}`);
+        if (action?.dueDate) lines.push(`   - 截止：${action.dueDate}`);
+        if (action?.nextStep) lines.push(`   - 下一步：${action.nextStep}`);
+        lines.push(`   - 状态：**${statusLabelForExport[snapshot.checklistStatus[item.id] || 'todo']}**`);
+        lines.push('');
+      });
+    });
+  }
+
+  const issueWithNotes = snapshot.issueRegistry.filter(
     (it) => snapshot.reviewNotes[it.id] && snapshot.reviewNotes[it.id].trim().length > 0
   );
-  if (itemsWithNotes.length > 0) {
+  const foreshadowWithNotes = (snapshot.foreshadowRegistry || []).filter(
+    (it) => snapshot.reviewNotes[it.id] && snapshot.reviewNotes[it.id].trim().length > 0
+  );
+  const totalNoteCount = issueWithNotes.length + foreshadowWithNotes.length;
+  if (totalNoteCount > 0) {
     lines.push('## 评审备注汇总');
     lines.push('');
-    itemsWithNotes.forEach((it, i) => {
-      lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
+    let idx = 0;
+    issueWithNotes.forEach((it) => {
+      idx++;
+      lines.push(`${idx}. [${categoryLabelForExport[it.category]}] ${it.description}`);
       lines.push(`   - 状态：**${statusLabelForExport[snapshot.checklistStatus[it.id] || 'todo']}**`);
+      lines.push(`   - 备注：${snapshot.reviewNotes[it.id]}`);
+      lines.push('');
+    });
+    foreshadowWithNotes.forEach((it) => {
+      idx++;
+      const statusTag = it.status === 'resolved' ? '伏笔·已回收' : '伏笔·未回收';
+      lines.push(`${idx}. [${statusTag}] ${it.element}：${it.description}`);
       lines.push(`   - 备注：${snapshot.reviewNotes[it.id]}`);
       lines.push('');
     });

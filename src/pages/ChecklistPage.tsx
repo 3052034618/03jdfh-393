@@ -11,6 +11,10 @@ import {
   Clock,
   CheckCircle2,
   PauseCircle,
+  LayoutGrid,
+  UserRound,
+  CalendarDays,
+  ChevronRight,
 } from 'lucide-react';
 import { useBlueprintStore, checklistStatusOptions } from '@/store/blueprintStore';
 import type { Priority, IssueCategory, ChecklistStatus } from '@/types';
@@ -63,6 +67,9 @@ export default function ChecklistPage() {
     checklistStatus,
     setChecklistItemStatus,
     getChecklistItemStatus,
+    actionItems,
+    setActionItem,
+    getActionItem,
   } = useBlueprintStore();
   const allRooms = getAllRooms();
   const checklist = useMemo(() => getChecklist(), [getChecklist]);
@@ -71,6 +78,8 @@ export default function ChecklistPage() {
   const [categoryFilter, setCategoryFilter] = useState<IssueCategory | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<ChecklistStatus | 'all'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
+  const [kanbanStatusFilter, setKanbanStatusFilter] = useState<ChecklistStatus | 'all'>('all');
 
   const filteredItems = useMemo(() => {
     return checklist.filter((item) => {
@@ -123,12 +132,18 @@ export default function ChecklistPage() {
     if (sourceItems.length === 0) return;
     const text = sourceItems
       .map((item, idx) => {
-        return (
-          `[${priorityLabel[item.priority]}] ${categoryLabel[item.category]}\n` +
-          `${idx + 1}. ${item.description}\n` +
-          `   关联：${item.relatedRoom}\n` +
-          `   建议：${item.suggestion}`
-        );
+        const st = getChecklistItemStatus(item.id);
+        const act = getActionItem(item.id);
+        const lines = [
+          `[${priorityLabel[item.priority]}] ${categoryLabel[item.category]} [${statusConfig[st].label}]`,
+          `${idx + 1}. ${item.description}`,
+          `   关联：${item.relatedRoom}`,
+          `   建议：${item.suggestion}`,
+        ];
+        if (act?.assignee) lines.push(`   负责人：${act.assignee}`);
+        if (act?.dueDate) lines.push(`   截止：${act.dueDate}`);
+        if (act?.nextStep) lines.push(`   下一步：${act.nextStep}`);
+        return lines.join('\n');
       })
       .join('\n\n');
     try {
@@ -327,12 +342,73 @@ export default function ChecklistPage() {
           </div>
         </div>
 
+        <div className="card-panel p-3 mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1 text-xs">
+            <button
+              onClick={() => setViewMode('list')}
+              className={cn(
+                'px-3 py-1.5 inline-flex items-center gap-1.5',
+                viewMode === 'list'
+                  ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/30'
+                  : 'text-text-muted hover:text-text-secondary'
+              )}
+            >
+              <ListTodo className="w-3.5 h-3.5" /> 列表视图
+            </button>
+            <button
+              onClick={() => setViewMode('kanban')}
+              className={cn(
+                'px-3 py-1.5 inline-flex items-center gap-1.5',
+                viewMode === 'kanban'
+                  ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/30'
+                  : 'text-text-muted hover:text-text-secondary'
+              )}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" /> 进展看板
+            </button>
+          </div>
+          {viewMode === 'kanban' && (
+            <div className="flex items-center gap-1 text-xs flex-wrap">
+              <span className="text-text-muted font-mono">状态：</span>
+              <button
+                onClick={() => setKanbanStatusFilter('all')}
+                className={cn(
+                  'px-2.5 py-1 border transition-all inline-flex items-center gap-1.5',
+                  kanbanStatusFilter === 'all'
+                    ? 'bg-accent-gold/10 border-accent-gold/50 text-accent-gold'
+                    : 'bg-bg-tertiary border-border-subtle text-text-muted hover:text-text-secondary'
+                )}
+              >
+                全部
+              </button>
+              {checklistStatusOptions.map((opt) => {
+                const Icon = statusConfig[opt.value].icon;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => setKanbanStatusFilter(opt.value)}
+                    className={cn(
+                      'px-2.5 py-1 border transition-all inline-flex items-center gap-1.5',
+                      kanbanStatusFilter === opt.value
+                        ? statusConfig[opt.value].cls
+                        : 'bg-bg-tertiary border-border-subtle text-text-muted hover:text-text-secondary'
+                    )}
+                  >
+                    <Icon className="w-3 h-3" />
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {filteredItems.length === 0 ? (
           <div className="card-panel p-12 text-center">
             <Check className="w-12 h-12 text-status-low mx-auto mb-3 opacity-30" />
             <p className="text-text-secondary">当前筛选条件下没有需要修改的问题。</p>
           </div>
-        ) : (
+        ) : viewMode === 'list' ? (
           <div className="space-y-3">
             {filteredItems.map((item, idx) => {
               const Icon = categoryIcon[item.category];
@@ -409,14 +485,21 @@ export default function ChecklistPage() {
                             })}
                           </div>
                           <button
-                            onClick={() =>
-                              handleCopy(
-                                item.id,
-                                `[${priorityLabel[item.priority]}] ${categoryLabel[item.category]} [${statusConfig[st].label}]\n${item.description}\n关联：${item.relatedRoom}\n建议：${item.suggestion}`
-                              )
-                            }
+                            onClick={() => {
+                              const act = getActionItem(item.id);
+                              const lines = [
+                                `[${priorityLabel[item.priority]}] ${categoryLabel[item.category]} [${statusConfig[st].label}]`,
+                                item.description,
+                                `关联：${item.relatedRoom}`,
+                                `建议：${item.suggestion}`,
+                              ];
+                              if (act?.assignee) lines.push(`负责人：${act.assignee}`);
+                              if (act?.dueDate) lines.push(`截止：${act.dueDate}`);
+                              if (act?.nextStep) lines.push(`下一步：${act.nextStep}`);
+                              handleCopy(item.id, lines.join('\n'));
+                            }}
                             className="p-1.5 text-text-muted hover:text-accent-gold transition-colors"
-                            title="复制此条建议"
+                            title="复制此条建议（含负责人和截止时间）"
                           >
                             {copiedId === item.id ? (
                               <Check className="w-4 h-4 text-status-low" />
@@ -438,7 +521,7 @@ export default function ChecklistPage() {
                         {item.description}
                       </p>
 
-                      <div className="pl-3 border-l-2 border-accent-gold/30">
+                      <div className="pl-3 border-l-2 border-accent-gold/30 mb-3">
                         <p className="text-xs">
                           <span className="text-accent-gold font-mono mr-2">修改建议 →</span>
                           <span className="text-text-secondary leading-relaxed">
@@ -446,11 +529,151 @@ export default function ChecklistPage() {
                           </span>
                         </p>
                       </div>
+
+                      <div className="pl-3 border-l-2 border-border-strong">
+                        <p className="text-[11px] text-text-muted font-mono mb-2 flex items-center gap-1">
+                          <ListTodo className="w-3 h-3" />
+                          行动项（可选）
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                          <div className="md:col-span-4">
+                            <label className="text-[10px] text-text-muted font-mono mb-1 block flex items-center gap-1">
+                              <UserRound className="w-2.5 h-2.5" /> 负责人
+                            </label>
+                            <input
+                              type="text"
+                              value={getActionItem(item.id).assignee || ''}
+                              onChange={(e) => setActionItem(item.id, { assignee: e.target.value })}
+                              placeholder="如：王工"
+                              className="input-field w-full !py-1.5 text-xs"
+                            />
+                          </div>
+                          <div className="md:col-span-3">
+                            <label className="text-[10px] text-text-muted font-mono mb-1 block flex items-center gap-1">
+                              <CalendarDays className="w-2.5 h-2.5" /> 截止时间
+                            </label>
+                            <input
+                              type="text"
+                              value={getActionItem(item.id).dueDate || ''}
+                              onChange={(e) => setActionItem(item.id, { dueDate: e.target.value })}
+                              placeholder="如：2026-06-25"
+                              className="input-field w-full !py-1.5 text-xs"
+                            />
+                          </div>
+                          <div className="md:col-span-5">
+                            <label className="text-[10px] text-text-muted font-mono mb-1 block flex items-center gap-1">
+                              <ListTodo className="w-2.5 h-2.5" /> 下一步动作
+                            </label>
+                            <input
+                              type="text"
+                              value={getActionItem(item.id).nextStep || ''}
+                              onChange={(e) => setActionItem(item.id, { nextStep: e.target.value })}
+                              placeholder="如：和场景组确认洗衣房尺寸"
+                              className="input-field w-full !py-1.5 text-xs"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               );
             })}
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {(() => {
+              const byAssignee = new Map<string, typeof filteredItems>();
+              filteredItems.forEach((it) => {
+                const st = getChecklistItemStatus(it.id);
+                if (kanbanStatusFilter !== 'all' && st !== kanbanStatusFilter) return;
+                const k = (getActionItem(it.id).assignee || '').trim() || '未分配';
+                if (!byAssignee.has(k)) byAssignee.set(k, []);
+                byAssignee.get(k)!.push(it);
+              });
+              const statuses = kanbanStatusFilter === 'all'
+                ? (['todo', 'adopted', 'deferred'] as const)
+                : [kanbanStatusFilter] as const;
+              return Array.from(byAssignee.entries()).map(([assignee, items]) => (
+                <div key={assignee} className="card-panel p-4">
+                  <h4 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
+                    <UserRound className="w-4 h-4 text-accent-gold" />
+                    {assignee}
+                    <span className="font-mono text-xs text-text-muted">· {items.length} 项</span>
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {statuses.map((st) => {
+                      const list = items.filter((it) => getChecklistItemStatus(it.id) === st);
+                      const SIcon = statusConfig[st].icon;
+                      return (
+                        <div key={st} className="bg-bg-tertiary/20 border border-border-subtle p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className={cn('tag text-[10px] gap-1', statusConfig[st].cls)}>
+                              <SIcon className="w-3 h-3" />
+                              {statusConfig[st].label}
+                            </span>
+                            <span className="font-mono text-xs text-text-muted">{list.length}</span>
+                          </div>
+                          {list.length === 0 ? (
+                            <p className="text-[11px] text-text-muted text-center py-4 opacity-60">暂无</p>
+                          ) : (
+                            <ul className="space-y-2">
+                              {list.map((item) => {
+                                const act = getActionItem(item.id);
+                                const Icon = categoryIcon[item.category];
+                                return (
+                                  <li key={item.id} className={cn(
+                                    'p-2.5 bg-bg-secondary border border-border-subtle text-xs',
+                                    st === 'adopted' && 'opacity-60'
+                                  )}>
+                                    <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                                      <span className={cn(
+                                        'tag gap-1 text-[10px]',
+                                        item.category === 'narrative'
+                                          ? 'bg-accent-crimson/10 text-accent-crimsonLight border-accent-crimson/40'
+                                          : item.category === 'rhythm'
+                                            ? 'bg-status-high/10 text-status-high border-status-high/40'
+                                            : 'bg-status-medium/10 text-status-medium border-status-medium/40'
+                                      )}>
+                                        <Icon className="w-2.5 h-2.5" />
+                                        {categoryLabel[item.category]}
+                                      </span>
+                                      <span className={cn('tag text-[10px]', `priority-${item.priority}`)}>
+                                        {priorityLabel[item.priority]}
+                                      </span>
+                                    </div>
+                                    <p className={cn(
+                                      'text-text-secondary leading-relaxed mb-1.5',
+                                      st === 'adopted' && 'line-through'
+                                    )}>
+                                      {item.description}
+                                    </p>
+                                    <div className="space-y-1 text-[10px] text-text-muted font-mono">
+                                      {act?.dueDate && (
+                                        <div className="flex items-center gap-1">
+                                          <CalendarDays className="w-2.5 h-2.5" />
+                                          截止：{act.dueDate}
+                                        </div>
+                                      )}
+                                      {act?.nextStep && (
+                                        <div className="flex items-start gap-1">
+                                          <ChevronRight className="w-2.5 h-2.5 mt-0.5" />
+                                          <span className="break-words">下一步：{act.nextStep}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ));
+            })()}
           </div>
         )}
       </div>

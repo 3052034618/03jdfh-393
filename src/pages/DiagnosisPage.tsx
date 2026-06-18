@@ -30,10 +30,18 @@ import {
   MinusCircle,
   Tag,
   Edit,
+  User,
+  CalendarDays,
+  ListTodo,
+  Shuffle,
+  UserRound,
+  ListChecks,
+  RefreshCw,
+  Check,
 } from 'lucide-react';
 import { useBlueprintStore, categoryLabelForSnapshot } from '@/store/blueprintStore';
 import { getEmotionCurve, emotionLabel, spaceTypeLabel } from '@/utils/diagnosis';
-import type { Priority, ForeshadowStatus, ReviewSnapshot, ChecklistStatus, SnapshotComparison } from '@/types';
+import type { Priority, ForeshadowStatus, ReviewSnapshot, ChecklistStatus, SnapshotComparison, IssueActionItem } from '@/types';
 import { cn } from '@/lib/utils';
 import EmotionCurveChart from '@/components/EmotionCurveChart';
 import {
@@ -128,6 +136,11 @@ function ComparisonPanel({
   statusColorCls: Record<ChecklistStatus, string>;
   statusLabelShort: Record<ChecklistStatus, string>;
 }) {
+  const actionFieldLabel: Record<'assignee' | 'dueDate' | 'nextStep', string> = {
+    assignee: '负责人',
+    dueDate: '截止时间',
+    nextStep: '下一步动作',
+  };
   if (!comparison) {
     return <p className="text-center py-8 text-sm text-text-muted">无法生成对比数据。</p>;
   }
@@ -136,7 +149,8 @@ function ComparisonPanel({
     comparison.newIssues.length +
     comparison.resolvedIssues.length +
     comparison.statusChanges.length +
-    comparison.noteChanges.length;
+    comparison.noteChanges.length +
+    comparison.actionChanges.length;
 
   if (totalChanges === 0) {
     return (
@@ -150,7 +164,7 @@ function ComparisonPanel({
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="p-3 bg-status-low/5 border border-status-low/20">
           <p className="text-xs text-text-muted mb-1 flex items-center gap-1">
             <GitCompare className="w-3 h-3" /> 指数变化
@@ -177,10 +191,18 @@ function ComparisonPanel({
         </div>
         <div className="p-3 bg-accent-gold/5 border border-accent-gold/30">
           <p className="text-xs text-text-muted mb-1 flex items-center gap-1">
-            <Tag className="w-3 h-3" /> 其他变更
+            <Tag className="w-3 h-3" /> 状态/备注
           </p>
           <p className="text-2xl font-mono text-accent-gold font-bold">
             {comparison.statusChanges.length + comparison.noteChanges.length}
+          </p>
+        </div>
+        <div className="p-3 bg-bg-tertiary/50 border border-border-strong">
+          <p className="text-xs text-text-muted mb-1 flex items-center gap-1">
+            <ListTodo className="w-3 h-3" /> 行动项变更
+          </p>
+          <p className="text-2xl font-mono text-text-primary font-bold">
+            {comparison.actionChanges.length}
           </p>
         </div>
       </div>
@@ -301,6 +323,45 @@ function ComparisonPanel({
           </ul>
         </div>
       )}
+
+      {comparison.actionChanges.length > 0 && (
+        <div className="card-panel p-4 border-l-4 border-border-strong">
+          <h4 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
+            <ListTodo className="w-4 h-4 text-text-primary" />
+            行动项变更 · {comparison.actionChanges.length}
+          </h4>
+          <ul className="space-y-2">
+            {comparison.actionChanges.map((it, i) => (
+              <li key={`${it.id}-${it.field}-${i}`} className="p-3 bg-bg-tertiary/30 border border-border-subtle">
+                <div className="flex items-start gap-3">
+                  <span className="text-xs font-mono text-text-muted w-6 shrink-0">{i + 1}.</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text-primary mb-1.5">{it.description}</p>
+                    <div className="flex items-center gap-2 text-xs flex-wrap">
+                      <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30">
+                        {actionFieldLabel[it.field]}
+                      </span>
+                      <span className={cn(
+                        'px-2 py-0.5 bg-bg-tertiary text-text-secondary',
+                        !it.oldValue && 'italic opacity-60'
+                      )}>
+                        {it.oldValue || '（未填写）'}
+                      </span>
+                      <ArrowRight className="w-3 h-3 text-accent-gold shrink-0" />
+                      <span className={cn(
+                        'px-2 py-0.5 bg-accent-gold/10 text-accent-gold',
+                        !it.newValue && 'italic'
+                      )}>
+                        {it.newValue || '（已清空）'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -313,10 +374,14 @@ export default function DiagnosisPage() {
     reviewNotes,
     setReviewNote,
     checklistStatus,
+    actionItems,
+    setActionItem,
+    getActionItem,
     reviewSnapshots,
     saveReviewSnapshot,
     deleteReviewSnapshot,
     compareSnapshot,
+    compareTwoSnapshots,
   } = useBlueprintStore();
   const allRooms = getAllRooms();
   const diagnosis = useMemo(() => getDiagnosis(), [getDiagnosis]);
@@ -329,8 +394,11 @@ export default function DiagnosisPage() {
   const [saveTitle, setSaveTitle] = useState('');
   const [saveAttendees, setSaveAttendees] = useState('');
   const [saveConclusion, setSaveConclusion] = useState('');
-  const [snapshotDetailTab, setSnapshotDetailTab] = useState<'overview' | 'notes' | 'checklist' | 'compare'>('overview');
+  const [snapshotDetailTab, setSnapshotDetailTab] = useState<'overview' | 'notes' | 'checklist' | 'compare' | 'actions'>('overview');
   const [lastSavedId, setLastSavedId] = useState<string | null>(null);
+  const [compareMode, setCompareMode] = useState<'vs-current' | 'vs-snapshot'>('vs-current');
+  const [compareWithId, setCompareWithId] = useState<string>('');
+  const [saveActionsTab, setSaveActionsTab] = useState<'todo' | 'all'>('todo');
 
   const statusLabelShort: Record<ChecklistStatus, string> = {
     todo: '待处理',
@@ -634,7 +702,7 @@ export default function DiagnosisPage() {
 
         {showSaveDialog && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-bg-secondary border border-border-strong w-full max-w-lg shadow-2xl animate-slideUp">
+            <div className="bg-bg-secondary border border-border-strong w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl animate-slideUp">
               <div className="p-5 border-b border-border-subtle flex items-center justify-between">
                 <h3 className="font-display text-lg text-accent-gold flex items-center gap-2">
                   <Save className="w-4 h-4" />
@@ -647,32 +715,34 @@ export default function DiagnosisPage() {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-5 space-y-4">
-                <div>
-                  <label className="text-xs text-text-muted font-mono mb-1.5 block flex items-center gap-1">
-                    <BookOpen className="w-3 h-3" />
-                    会议标题
-                  </label>
-                  <input
-                    type="text"
-                    value={saveTitle}
-                    onChange={(e) => setSaveTitle(e.target.value)}
-                    placeholder="如：第3次叙事评审会 · 洗衣房方案定稿"
-                    className="input-field w-full"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-text-muted font-mono mb-1.5 block flex items-center gap-1">
-                    <Users className="w-3 h-3" />
-                    参会人
-                  </label>
-                  <input
-                    type="text"
-                    value={saveAttendees}
-                    onChange={(e) => setSaveAttendees(e.target.value)}
-                    placeholder="如：编剧组老张、场景王工、导演组小李"
-                    className="input-field w-full"
-                  />
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-text-muted font-mono mb-1.5 block flex items-center gap-1">
+                      <BookOpen className="w-3 h-3" />
+                      会议标题
+                    </label>
+                    <input
+                      type="text"
+                      value={saveTitle}
+                      onChange={(e) => setSaveTitle(e.target.value)}
+                      placeholder="如：第3次叙事评审会 · 洗衣房方案定稿"
+                      className="input-field w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-muted font-mono mb-1.5 block flex items-center gap-1">
+                      <Users className="w-3 h-3" />
+                      参会人
+                    </label>
+                    <input
+                      type="text"
+                      value={saveAttendees}
+                      onChange={(e) => setSaveAttendees(e.target.value)}
+                      placeholder="如：编剧组老张、场景王工、导演组小李"
+                      className="input-field w-full"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs text-text-muted font-mono mb-1.5 block flex items-center gap-1">
@@ -683,12 +753,120 @@ export default function DiagnosisPage() {
                     value={saveConclusion}
                     onChange={(e) => setSaveConclusion(e.target.value)}
                     placeholder="本次会议结论与决策要点…"
-                    rows={4}
+                    rows={3}
                     className="input-field w-full resize-none"
                   />
                 </div>
-                <div className="text-xs text-text-muted font-mono p-3 bg-bg-tertiary/40 border border-border-subtle">
-                  将记录：叙事指数 {diagnosis.overallScore} · 问题 {checklist.length} 项 · 备注 {Object.values(reviewNotes).filter(n => n.trim()).length} 条
+
+                <div className="pt-2 border-t border-border-subtle">
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <h4 className="text-sm text-text-primary font-medium flex items-center gap-2">
+                      <ListChecks className="w-4 h-4 text-accent-gold" />
+                      行动项跟进（可选）
+                    </h4>
+                    <div className="flex items-center gap-1 text-xs">
+                      <button
+                        onClick={() => setSaveActionsTab('todo')}
+                        className={cn(
+                          'px-3 py-1',
+                          saveActionsTab === 'todo'
+                            ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/30'
+                            : 'text-text-muted hover:text-text-secondary'
+                        )}
+                      >
+                        待处理（{checklist.filter((it) => (checklistStatus[it.id] || 'todo') === 'todo').length}）
+                      </button>
+                      <button
+                        onClick={() => setSaveActionsTab('all')}
+                        className={cn(
+                          'px-3 py-1',
+                          saveActionsTab === 'all'
+                            ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/30'
+                            : 'text-text-muted hover:text-text-secondary'
+                        )}
+                      >
+                        全部（{checklist.length}）
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-3 max-h-[36vh] overflow-y-auto pr-1">
+                    {checklist
+                      .filter((it) => saveActionsTab === 'all' || (checklistStatus[it.id] || 'todo') === 'todo')
+                      .map((it, i) => {
+                        const act = getActionItem(it.id);
+                        return (
+                          <div
+                            key={it.id}
+                            className="p-3 bg-bg-tertiary/30 border border-border-subtle"
+                          >
+                            <div className="flex items-start gap-2 mb-2">
+                              <span className="text-xs font-mono text-text-muted w-5 shrink-0 mt-0.5">{i + 1}.</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                  <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30">
+                                    {categoryLabelForSnapshot[it.category]}
+                                  </span>
+                                  <span className={cn('tag text-[10px]', statusColorCls[checklistStatus[it.id] || 'todo'])}>
+                                    {statusLabelShort[checklistStatus[it.id] || 'todo']}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-text-secondary leading-relaxed">{it.description}</p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 pl-7">
+                              <div className="md:col-span-4">
+                                <label className="text-[10px] text-text-muted font-mono mb-1 block flex items-center gap-1">
+                                  <UserRound className="w-2.5 h-2.5" /> 负责人
+                                </label>
+                                <input
+                                  type="text"
+                                  value={act.assignee || ''}
+                                  onChange={(e) => setActionItem(it.id, { assignee: e.target.value })}
+                                  placeholder="如：王工"
+                                  className="input-field w-full !py-1.5 text-xs"
+                                />
+                              </div>
+                              <div className="md:col-span-3">
+                                <label className="text-[10px] text-text-muted font-mono mb-1 block flex items-center gap-1">
+                                  <CalendarDays className="w-2.5 h-2.5" /> 截止时间
+                                </label>
+                                <input
+                                  type="text"
+                                  value={act.dueDate || ''}
+                                  onChange={(e) => setActionItem(it.id, { dueDate: e.target.value })}
+                                  placeholder="如：2026-06-25"
+                                  className="input-field w-full !py-1.5 text-xs"
+                                />
+                              </div>
+                              <div className="md:col-span-5">
+                                <label className="text-[10px] text-text-muted font-mono mb-1 block flex items-center gap-1">
+                                  <ListTodo className="w-2.5 h-2.5" /> 下一步动作
+                                </label>
+                                <input
+                                  type="text"
+                                  value={act.nextStep || ''}
+                                  onChange={(e) => setActionItem(it.id, { nextStep: e.target.value })}
+                                  placeholder="如：和场景组确认洗衣房尺寸"
+                                  className="input-field w-full !py-1.5 text-xs"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    {checklist.filter((it) => saveActionsTab === 'all' || (checklistStatus[it.id] || 'todo') === 'todo').length === 0 && (
+                      <p className="text-center py-6 text-xs text-text-muted">当前筛选下无问题。</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="text-xs text-text-muted font-mono p-3 bg-bg-tertiary/40 border border-border-subtle flex items-center justify-between flex-wrap gap-2">
+                  <span>
+                    将记录：叙事指数 {diagnosis.overallScore} · 问题 {checklist.length} 项 · 备注 {Object.values(reviewNotes).filter(n => n.trim()).length} 条
+                  </span>
+                  <span>
+                    行动项已填 {Object.values(actionItems).filter(a => a.assignee || a.dueDate || a.nextStep).length} 条
+                  </span>
                 </div>
               </div>
               <div className="p-5 border-t border-border-subtle flex gap-3 justify-end">
@@ -738,8 +916,8 @@ export default function DiagnosisPage() {
                 </div>
               </div>
 
-              <div className="px-5 pt-4 flex gap-1 border-b border-border-subtle">
-                {(['overview', 'notes', 'checklist', 'compare'] as const).map((tab) => (
+              <div className="px-5 pt-4 flex gap-1 border-b border-border-subtle flex-wrap">
+                {(['overview', 'actions', 'notes', 'checklist', 'compare'] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setSnapshotDetailTab(tab)}
@@ -751,9 +929,10 @@ export default function DiagnosisPage() {
                     )}
                   >
                     {tab === 'overview' && '📊 总览'}
+                    {tab === 'actions' && `🎯 行动项 (${Object.values(viewingSnapshot.actionItems || {}).filter(a => a.assignee || a.dueDate || a.nextStep).length})`}
                     {tab === 'notes' && `📝 评审备注 (${viewingSnapshot.noteCount})`}
                     {tab === 'checklist' && `✅ 修改清单 (${viewingSnapshot.totalIssueCount})`}
-                    {tab === 'compare' && '⚖️ 对比当前'}
+                    {tab === 'compare' && (compareMode === 'vs-current' ? '⚖️ 对比当前' : '⚖️ 版本对比')}
                   </button>
                 ))}
               </div>
@@ -806,6 +985,26 @@ export default function DiagnosisPage() {
                         <p className="text-xl font-mono text-status-medium">{viewingSnapshot.deferredCount}</p>
                       </div>
                     </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="p-4 bg-bg-tertiary/30 border border-border-subtle">
+                        <p className="text-xs text-text-muted mb-0.5 flex items-center gap-1"><UserRound className="w-3 h-3" /> 已分配</p>
+                        <p className="text-xl font-mono text-text-primary">
+                          {Object.values(viewingSnapshot.actionItems || {}).filter(a => a.assignee).length}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-bg-tertiary/30 border border-border-subtle">
+                        <p className="text-xs text-text-muted mb-0.5 flex items-center gap-1"><CalendarDays className="w-3 h-3" /> 有截止时间</p>
+                        <p className="text-xl font-mono text-text-primary">
+                          {Object.values(viewingSnapshot.actionItems || {}).filter(a => a.dueDate).length}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-bg-tertiary/30 border border-border-subtle">
+                        <p className="text-xs text-text-muted mb-0.5 flex items-center gap-1"><ListTodo className="w-3 h-3" /> 已有下一步</p>
+                        <p className="text-xl font-mono text-text-primary">
+                          {Object.values(viewingSnapshot.actionItems || {}).filter(a => a.nextStep).length}
+                        </p>
+                      </div>
+                    </div>
                     {viewingSnapshot.meetingConclusion && (
                       <div className="card-panel p-4 border-l-4 border-accent-gold/60">
                         <p className="text-xs text-text-muted mb-2 flex items-center gap-1">
@@ -823,43 +1022,110 @@ export default function DiagnosisPage() {
                   </>
                 )}
 
+                {snapshotDetailTab === 'actions' && (
+                  <div className="space-y-3">
+                    {(() => {
+                      const list = viewingSnapshot.issueRegistry
+                        .map((it) => ({ item: it, action: viewingSnapshot.actionItems?.[it.id] }))
+                        .filter(({ action }) => action && (action.assignee || action.dueDate || action.nextStep));
+                      if (list.length === 0) {
+                        return <p className="text-center py-8 text-sm text-text-muted">本次评审未登记行动项。</p>;
+                      }
+                      const byAssignee = new Map<string, typeof list>();
+                      list.forEach((row) => {
+                        const k = row.action?.assignee?.trim() || '未分配';
+                        if (!byAssignee.has(k)) byAssignee.set(k, []);
+                        byAssignee.get(k)!.push(row);
+                      });
+                      return Array.from(byAssignee.entries()).map(([assignee, rows]) => (
+                        <div key={assignee} className="card-panel p-4">
+                          <h4 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
+                            <UserRound className="w-4 h-4 text-accent-gold" />
+                            {assignee}
+                            <span className="font-mono text-xs text-text-muted">· {rows.length} 项</span>
+                          </h4>
+                          <ul className="space-y-2">
+                            {rows.map(({ item, action }, i) => (
+                              <li key={item.id} className="p-3 bg-bg-tertiary/30 border border-border-subtle">
+                                <div className="flex items-start gap-2 mb-2">
+                                  <span className="text-xs font-mono text-text-muted w-5 shrink-0 mt-0.5">{i + 1}.</span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                      <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30">
+                                        {categoryLabelForSnapshot[item.category]}
+                                      </span>
+                                      <span className={cn('tag text-[10px]', statusColorCls[viewingSnapshot.checklistStatus[item.id] || 'todo'])}>
+                                        {statusLabelShort[viewingSnapshot.checklistStatus[item.id] || 'todo']}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-text-secondary leading-relaxed mb-2">{item.description}</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                                      {action?.dueDate && (
+                                        <div className="flex items-center gap-1.5 text-text-secondary">
+                                          <CalendarDays className="w-3 h-3 text-accent-gold shrink-0" />
+                                          <span>截止：{action.dueDate}</span>
+                                        </div>
+                                      )}
+                                      {action?.nextStep && (
+                                        <div className="flex items-start gap-1.5 text-text-secondary md:col-span-2">
+                                          <ListTodo className="w-3 h-3 text-accent-gold shrink-0 mt-0.5" />
+                                          <span>下一步：{action.nextStep}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
+
                 {snapshotDetailTab === 'notes' && (
                   <div className="space-y-3">
-                    {viewingSnapshot.issueRegistry
-                      .filter((it) => viewingSnapshot.reviewNotes[it.id]?.trim().length > 0)
-                      .length === 0 ? (
-                      <p className="text-center py-8 text-sm text-text-muted">本次评审未填写任何备注。</p>
-                    ) : (
-                      viewingSnapshot.issueRegistry
+                    {(() => {
+                      const issueNotes = viewingSnapshot.issueRegistry
                         .filter((it) => viewingSnapshot.reviewNotes[it.id]?.trim().length > 0)
-                        .map((it, i) => (
-                          <div key={it.id} className="card-panel p-4">
-                            <div className="flex items-center gap-2 mb-2 flex-wrap">
-                              <span className="text-xs text-accent-gold font-mono">#{i + 1}</span>
+                        .map((it) => ({ type: 'issue' as const, id: it.id, description: it.description, category: it.category, status: viewingSnapshot.checklistStatus[it.id] || 'todo' as ChecklistStatus }));
+                      const foreshadowNotes = (viewingSnapshot.foreshadowRegistry || [])
+                        .filter((it) => viewingSnapshot.reviewNotes[it.id]?.trim().length > 0)
+                        .map((it) => ({ type: 'foreshadow' as const, id: it.id, description: `【伏笔${it.status === 'resolved' ? '·已回收' : '·未回收'}】${it.element}：${it.description}`, status: 'todo' as ChecklistStatus }));
+                      const all = [...issueNotes, ...foreshadowNotes];
+                      if (all.length === 0) {
+                        return <p className="text-center py-8 text-sm text-text-muted">本次评审未填写任何备注。</p>;
+                      }
+                      return all.map((it, i) => (
+                        <div key={it.id} className="card-panel p-4">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <span className="text-xs text-accent-gold font-mono">#{i + 1}</span>
+                            {it.type === 'foreshadow' ? (
+                              <span className="tag text-[10px] bg-accent-crimson/10 text-accent-crimsonLight border-accent-crimson/30">伏笔相关</span>
+                            ) : (
                               <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30">
                                 {categoryLabelForSnapshot[it.category]}
                               </span>
-                              <span
-                                className={cn(
-                                  'tag text-[10px]',
-                                  statusColorCls[viewingSnapshot.checklistStatus[it.id] || 'todo']
-                                )}
-                              >
-                                {statusLabelShort[viewingSnapshot.checklistStatus[it.id] || 'todo']}
+                            )}
+                            {it.type === 'issue' && (
+                              <span className={cn('tag text-[10px]', statusColorCls[it.status])}>
+                                {statusLabelShort[it.status]}
                               </span>
-                            </div>
-                            <p className="text-sm text-text-primary mb-2 leading-relaxed">{it.description}</p>
-                            <div className="pl-3 border-l-2 border-accent-gold/40 bg-accent-gold/5 py-2 pr-3">
-                              <p className="text-[10px] text-accent-gold font-mono mb-1 flex items-center gap-1">
-                                <Edit className="w-2.5 h-2.5" /> 评审备注
-                              </p>
-                              <p className="text-xs text-text-secondary leading-relaxed whitespace-pre-wrap">
-                                {viewingSnapshot.reviewNotes[it.id]}
-                              </p>
-                            </div>
+                            )}
                           </div>
-                        ))
-                    )}
+                          <p className="text-sm text-text-primary mb-2 leading-relaxed">{it.description}</p>
+                          <div className="pl-3 border-l-2 border-accent-gold/40 bg-accent-gold/5 py-2 pr-3">
+                            <p className="text-[10px] text-accent-gold font-mono mb-1 flex items-center gap-1">
+                              <Edit className="w-2.5 h-2.5" /> 评审备注
+                            </p>
+                            <p className="text-xs text-text-secondary leading-relaxed whitespace-pre-wrap">
+                              {viewingSnapshot.reviewNotes[it.id]}
+                            </p>
+                          </div>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 )}
 
@@ -883,35 +1149,61 @@ export default function DiagnosisPage() {
                             <p className="text-center py-4 text-xs text-text-muted">无。</p>
                           ) : (
                             <ul className="space-y-2">
-                              {items.map((it, i) => (
-                                <li
-                                  key={it.id}
-                                  className={cn(
-                                    'p-3 bg-bg-tertiary/30 border border-border-subtle text-sm flex items-start gap-3',
-                                    st === 'adopted' && 'opacity-60'
-                                  )}
-                                >
-                                  <span className="text-xs font-mono text-text-muted w-6 shrink-0">{i + 1}.</span>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                      <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30">
-                                        {categoryLabelForSnapshot[it.category]}
-                                      </span>
-                                    </div>
-                                    <p className={cn(
-                                      'text-text-secondary text-xs leading-relaxed',
-                                      st === 'adopted' && 'line-through'
-                                    )}>
-                                      {it.description}
-                                    </p>
-                                    {viewingSnapshot.reviewNotes[it.id]?.trim() && (
-                                      <p className="text-[10px] text-accent-gold mt-1 pl-2 border-l border-accent-gold/40">
-                                        备注：{viewingSnapshot.reviewNotes[it.id]}
-                                      </p>
+                              {items.map((it, i) => {
+                                const act = viewingSnapshot.actionItems?.[it.id];
+                                const hasAction = act && (act.assignee || act.dueDate || act.nextStep);
+                                return (
+                                  <li
+                                    key={it.id}
+                                    className={cn(
+                                      'p-3 bg-bg-tertiary/30 border border-border-subtle text-sm flex items-start gap-3',
+                                      st === 'adopted' && 'opacity-60'
                                     )}
-                                  </div>
-                                </li>
-                              ))}
+                                  >
+                                    <span className="text-xs font-mono text-text-muted w-6 shrink-0">{i + 1}.</span>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                        <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30">
+                                          {categoryLabelForSnapshot[it.category]}
+                                        </span>
+                                      </div>
+                                      <p className={cn(
+                                        'text-text-secondary text-xs leading-relaxed',
+                                        st === 'adopted' && 'line-through'
+                                      )}>
+                                        {it.description}
+                                      </p>
+                                      {viewingSnapshot.reviewNotes[it.id]?.trim() && (
+                                        <p className="text-[10px] text-accent-gold mt-1 pl-2 border-l border-accent-gold/40">
+                                          备注：{viewingSnapshot.reviewNotes[it.id]}
+                                        </p>
+                                      )}
+                                      {hasAction && (
+                                        <div className="mt-2 p-2 bg-bg-tertiary/50 border border-border-subtle text-[11px] space-y-1">
+                                          {act?.assignee && (
+                                            <div className="flex items-center gap-1.5 text-text-secondary">
+                                              <UserRound className="w-3 h-3 text-accent-gold shrink-0" />
+                                              <span>负责人：{act.assignee}</span>
+                                            </div>
+                                          )}
+                                          {act?.dueDate && (
+                                            <div className="flex items-center gap-1.5 text-text-secondary">
+                                              <CalendarDays className="w-3 h-3 text-accent-gold shrink-0" />
+                                              <span>截止：{act.dueDate}</span>
+                                            </div>
+                                          )}
+                                          {act?.nextStep && (
+                                            <div className="flex items-start gap-1.5 text-text-secondary">
+                                              <ListTodo className="w-3 h-3 text-accent-gold shrink-0 mt-0.5" />
+                                              <span>下一步：{act.nextStep}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </li>
+                                );
+                              })}
                             </ul>
                           )}
                         </div>
@@ -921,11 +1213,78 @@ export default function DiagnosisPage() {
                 )}
 
                 {snapshotDetailTab === 'compare' && (
-                  <ComparisonPanel
-                    comparison={compareSnapshot(viewingSnapshot.id)}
-                    statusColorCls={statusColorCls}
-                    statusLabelShort={statusLabelShort}
-                  />
+                  <div className="space-y-4">
+                    <div className="card-panel p-4">
+                      <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
+                        <div className="flex items-center gap-1 text-xs flex-wrap">
+                          <button
+                            onClick={() => setCompareMode('vs-current')}
+                            className={cn(
+                              'px-3 py-1.5',
+                              compareMode === 'vs-current'
+                                ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/30'
+                                : 'text-text-muted hover:text-text-secondary'
+                            )}
+                          >
+                            与当前对比
+                          </button>
+                          <button
+                            onClick={() => { setCompareMode('vs-snapshot'); if (!compareWithId && reviewSnapshots.length > 0) setCompareWithId(reviewSnapshots[0].id); }}
+                            className={cn(
+                              'px-3 py-1.5',
+                              compareMode === 'vs-snapshot'
+                                ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/30'
+                                : 'text-text-muted hover:text-text-secondary'
+                            )}
+                          >
+                            与历史版本对比
+                          </button>
+                        </div>
+                        {compareMode === 'vs-snapshot' && (
+                          <div className="flex items-center gap-2 text-xs flex-1 min-w-0">
+                            <span className="text-text-muted font-mono shrink-0">基线版本：</span>
+                            <select
+                              value={compareWithId}
+                              onChange={(e) => setCompareWithId(e.target.value)}
+                              className="input-field !py-1.5 text-xs flex-1 min-w-0"
+                            >
+                              {reviewSnapshots
+                                .filter((s) => s.id !== viewingSnapshot.id)
+                                .map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.meetingTitle} · {new Date(s.createdAt).toLocaleString('zh-CN')}
+                                  </option>
+                                ))}
+                              {reviewSnapshots.filter((s) => s.id !== viewingSnapshot.id).length === 0 && (
+                                <option value="">（无可对比版本）</option>
+                              )}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                      {compareMode === 'vs-snapshot' && (
+                        <div className="mt-3 text-[11px] text-text-muted font-mono flex items-center gap-2 flex-wrap">
+                          <RefreshCw className="w-3 h-3 text-accent-gold" />
+                          对比方向：
+                          <span className="text-accent-gold">
+                            {compareWithId && reviewSnapshots.find(s => s.id === compareWithId)?.meetingTitle || '未选择'}
+                          </span>
+                          <ArrowRight className="w-3 h-3" />
+                          <span className="text-accent-gold">{viewingSnapshot.meetingTitle}</span>
+                          <span className="text-text-secondary">（变化：新增/解决/状态流转/备注/行动项）</span>
+                        </div>
+                      )}
+                    </div>
+                    <ComparisonPanel
+                      comparison={
+                        compareMode === 'vs-current'
+                          ? compareSnapshot(viewingSnapshot.id)
+                          : (compareWithId ? compareTwoSnapshots(compareWithId, viewingSnapshot.id) : null)
+                      }
+                      statusColorCls={statusColorCls}
+                      statusLabelShort={statusLabelShort}
+                    />
+                  </div>
                 )}
               </div>
 

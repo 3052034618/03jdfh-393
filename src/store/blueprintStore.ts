@@ -19,6 +19,9 @@ import type {
   SnapshotComparison,
   SnapshotCreateInput,
   IssueCategory,
+  ForeshadowStatus,
+  ActionItemsMap,
+  IssueActionItem,
 } from '@/types';
 import {
   getAllRoomsOrdered,
@@ -45,7 +48,8 @@ export function compareSnapshotWithCurrent(
   snapshot: ReviewSnapshot,
   currentChecklist: ChecklistItem[],
   currentReviewNotes: ReviewNotesMap,
-  currentStatuses: ChecklistStatusMap
+  currentStatuses: ChecklistStatusMap,
+  currentActionItems: ActionItemsMap = {}
 ): SnapshotComparison {
   const currentScore = 0;
   const snapshotRegistryMap = new Map(
@@ -83,30 +87,52 @@ export function compareSnapshotWithCurrent(
   });
 
   const noteChanges: SnapshotComparison['noteChanges'] = [];
-  currentChecklist.forEach((it) => {
-    const oldNote = snapshot.reviewNotes[it.id] || '';
-    const newNote = currentReviewNotes[it.id] || '';
+  const collectNote = (id: string, description: string, oldNote: string, newNote: string) => {
     if (oldNote !== newNote && (oldNote.length > 0 || newNote.length > 0)) {
-      noteChanges.push({
-        id: it.id,
-        description: it.description,
-        oldNote,
-        newNote,
-      });
+      noteChanges.push({ id, description, oldNote, newNote });
     }
+  };
+  currentChecklist.forEach((it) => {
+    collectNote(it.id, it.description, snapshot.reviewNotes[it.id] || '', currentReviewNotes[it.id] || '');
+  });
+  (snapshot.foreshadowRegistry || []).forEach((it) => {
+    collectNote(it.id, `【伏笔】${it.element}：${it.description}`, snapshot.reviewNotes[it.id] || '', currentReviewNotes[it.id] || '');
   });
   snapshot.issueRegistry.forEach((it) => {
     if (!currentRegistryMap.has(it.id)) {
       const oldNote = snapshot.reviewNotes[it.id] || '';
       if (oldNote.length > 0) {
-        noteChanges.push({
-          id: it.id,
-          description: it.description,
-          oldNote,
-          newNote: '',
-        });
+        noteChanges.push({ id: it.id, description: it.description, oldNote, newNote: '' });
       }
     }
+  });
+
+  const actionChanges: SnapshotComparison['actionChanges'] = [];
+  const fields: (keyof IssueActionItem)[] = ['assignee', 'dueDate', 'nextStep'];
+  const allActionIds = new Set<string>([
+    ...Object.keys(snapshot.actionItems || {}),
+    ...Object.keys(currentActionItems),
+  ]);
+  allActionIds.forEach((id) => {
+    const oldA = snapshot.actionItems?.[id] || {};
+    const newA = currentActionItems[id] || {};
+    const issueDesc =
+      currentRegistryMap.get(id)?.description ||
+      snapshotRegistryMap.get(id)?.description ||
+      `#${id.slice(0, 8)}`;
+    fields.forEach((f) => {
+      const oldVal = (oldA[f] || '').toString();
+      const newVal = (newA[f] || '').toString();
+      if (oldVal !== newVal && (oldVal.length > 0 || newVal.length > 0)) {
+        actionChanges.push({
+          id,
+          description: issueDesc,
+          field: f,
+          oldValue: oldVal,
+          newValue: newVal,
+        });
+      }
+    });
   });
 
   return {
@@ -115,6 +141,85 @@ export function compareSnapshotWithCurrent(
     resolvedIssues,
     statusChanges,
     noteChanges,
+    actionChanges,
+  };
+}
+
+export function compareSnapshots(
+  a: ReviewSnapshot,
+  b: ReviewSnapshot
+): SnapshotComparison {
+  const aRegistryMap = new Map(a.issueRegistry.map((it) => [it.id, it]));
+  const bRegistryMap = new Map(b.issueRegistry.map((it) => [it.id, it]));
+
+  const newIssues: SnapshotComparison['newIssues'] = [];
+  const resolvedIssues: SnapshotComparison['resolvedIssues'] = [];
+  b.issueRegistry.forEach((it) => {
+    if (!aRegistryMap.has(it.id)) newIssues.push(it);
+  });
+  a.issueRegistry.forEach((it) => {
+    if (!bRegistryMap.has(it.id)) resolvedIssues.push(it);
+  });
+
+  const statusChanges: SnapshotComparison['statusChanges'] = [];
+  b.issueRegistry.forEach((it) => {
+    const from = a.checklistStatus[it.id] || 'todo';
+    const to = b.checklistStatus[it.id] || 'todo';
+    if (from !== to) statusChanges.push({ id: it.id, description: it.description, from, to });
+  });
+
+  const noteChanges: SnapshotComparison['noteChanges'] = [];
+  const allIds = new Set<string>([
+    ...a.issueRegistry.map((i) => i.id),
+    ...b.issueRegistry.map((i) => i.id),
+    ...(a.foreshadowRegistry || []).map((i) => i.id),
+    ...(b.foreshadowRegistry || []).map((i) => i.id),
+  ]);
+  const descFor = (id: string) =>
+    bRegistryMap.get(id)?.description ||
+    aRegistryMap.get(id)?.description ||
+    (b.foreshadowRegistry || []).find((f) => f.id === id)?.description ||
+    (a.foreshadowRegistry || []).find((f) => f.id === id)?.description ||
+    `#${id.slice(0, 8)}`;
+  allIds.forEach((id) => {
+    const oldNote = a.reviewNotes[id] || '';
+    const newNote = b.reviewNotes[id] || '';
+    if (oldNote !== newNote && (oldNote.length > 0 || newNote.length > 0)) {
+      noteChanges.push({ id, description: descFor(id), oldNote, newNote });
+    }
+  });
+
+  const actionChanges: SnapshotComparison['actionChanges'] = [];
+  const fields: (keyof IssueActionItem)[] = ['assignee', 'dueDate', 'nextStep'];
+  const actionIds = new Set<string>([
+    ...Object.keys(a.actionItems || {}),
+    ...Object.keys(b.actionItems || {}),
+  ]);
+  actionIds.forEach((id) => {
+    const oldA = a.actionItems?.[id] || {};
+    const newA = b.actionItems?.[id] || {};
+    fields.forEach((f) => {
+      const oldVal = (oldA[f] || '').toString();
+      const newVal = (newA[f] || '').toString();
+      if (oldVal !== newVal && (oldVal.length > 0 || newVal.length > 0)) {
+        actionChanges.push({
+          id,
+          description: descFor(id),
+          field: f,
+          oldValue: oldVal,
+          newValue: newVal,
+        });
+      }
+    });
+  });
+
+  return {
+    scoreChange: b.overallScore - a.overallScore,
+    newIssues,
+    resolvedIssues,
+    statusChanges,
+    noteChanges,
+    actionChanges,
   };
 }
 
@@ -123,6 +228,7 @@ interface BlueprintStore {
   selectedRoomId: string | null;
   reviewNotes: ReviewNotesMap;
   checklistStatus: ChecklistStatusMap;
+  actionItems: ActionItemsMap;
   reviewSnapshots: ReviewSnapshot[];
 
   addFloor: (name: string) => void;
@@ -145,6 +251,9 @@ interface BlueprintStore {
   setChecklistItemStatus: (itemId: string, status: ChecklistStatus) => void;
   getChecklistItemStatus: (itemId: string) => ChecklistStatus;
 
+  setActionItem: (itemId: string, action: Partial<IssueActionItem>) => void;
+  getActionItem: (itemId: string) => IssueActionItem;
+
   previewImportJSONBlueprint: (rawJSON: string, mappings?: ImportConfirmedMappings) => ImportResult;
   confirmImportJSONBlueprint: (rawJSON: string, mappings?: ImportConfirmedMappings) => ImportResult;
   importBlueprintFromFloors: (floors: Floor[]) => void;
@@ -152,6 +261,7 @@ interface BlueprintStore {
   saveReviewSnapshot: (input?: SnapshotCreateInput) => ReviewSnapshot;
   deleteReviewSnapshot: (id: string) => void;
   compareSnapshot: (snapshotId: string) => SnapshotComparison | null;
+  compareTwoSnapshots: (snapshotIdA: string, snapshotIdB: string) => SnapshotComparison | null;
 
   getAllRooms: () => Room[];
   getNarrativeIssues: () => NarrativeIssue[];
@@ -173,6 +283,7 @@ export const useBlueprintStore = create<BlueprintStore>()(
       selectedRoomId: null,
       reviewNotes: {},
       checklistStatus: {},
+      actionItems: {},
       reviewSnapshots: [],
 
       addFloor: (name) =>
@@ -270,6 +381,16 @@ export const useBlueprintStore = create<BlueprintStore>()(
 
       getChecklistItemStatus: (itemId) => get().checklistStatus[itemId] || 'todo',
 
+      setActionItem: (itemId, action) =>
+        set((state) => ({
+          actionItems: {
+            ...state.actionItems,
+            [itemId]: { ...(state.actionItems[itemId] || {}), ...action },
+          },
+        })),
+
+      getActionItem: (itemId) => get().actionItems[itemId] || {},
+
       previewImportJSONBlueprint: (rawJSON, mappings) => {
         try {
           const parsed = JSON.parse(rawJSON);
@@ -313,6 +434,7 @@ export const useBlueprintStore = create<BlueprintStore>()(
         const checklist = state.getChecklist();
         const notes = state.reviewNotes;
         const statuses = state.checklistStatus;
+        const actionItems = state.actionItems;
 
         let todoCount = 0;
         let adoptedCount = 0;
@@ -332,6 +454,19 @@ export const useBlueprintStore = create<BlueprintStore>()(
           })
         );
 
+        const foreshadowRegistry: ReviewSnapshot['foreshadowRegistry'] =
+          diagnosis.foreshadowItems.map((f) => ({
+            id: f.id,
+            element: f.element,
+            status: f.status,
+            description: f.description,
+          }));
+
+        let noteCount = 0;
+        [...issueRegistry, ...foreshadowRegistry].forEach((it) => {
+          if (notes[it.id]?.trim()) noteCount++;
+        });
+
         const snapshot: ReviewSnapshot = {
           id: generateId(),
           createdAt: new Date().toISOString(),
@@ -342,17 +477,19 @@ export const useBlueprintStore = create<BlueprintStore>()(
           foreshadowUnresolvedCount: diagnosis.foreshadowItems.filter(
             (f) => f.status !== 'resolved'
           ).length,
-          noteCount: Object.values(notes).filter((n) => n.trim().length > 0).length,
+          noteCount,
           todoCount,
           adoptedCount,
           deferredCount,
           totalIssueCount: checklist.length,
           reviewNotes: { ...notes },
           checklistStatus: { ...statuses },
+          actionItems: { ...actionItems },
           meetingTitle: input?.meetingTitle?.trim() || undefined,
           attendees: input?.attendees?.trim() || undefined,
           meetingConclusion: input?.meetingConclusion?.trim() || undefined,
           issueRegistry,
+          foreshadowRegistry,
         };
 
         set((state) => ({
@@ -375,10 +512,19 @@ export const useBlueprintStore = create<BlueprintStore>()(
           snap,
           state.getChecklist(),
           state.reviewNotes,
-          state.checklistStatus
+          state.checklistStatus,
+          state.actionItems
         );
         result.scoreChange = state.getDiagnosis().overallScore - snap.overallScore;
         return result;
+      },
+
+      compareTwoSnapshots: (idA, idB) => {
+        const state = get();
+        const a = state.reviewSnapshots.find((s) => s.id === idA);
+        const b = state.reviewSnapshots.find((s) => s.id === idB);
+        if (!a || !b) return null;
+        return compareSnapshots(a, b);
       },
 
       getAllRooms: () => getAllRoomsOrdered(get().floors),
@@ -417,6 +563,7 @@ export const useBlueprintStore = create<BlueprintStore>()(
           selectedRoomId: null,
           reviewNotes: {},
           checklistStatus: {},
+          actionItems: {},
         }),
     }),
     {
@@ -425,6 +572,7 @@ export const useBlueprintStore = create<BlueprintStore>()(
         floors: state.floors,
         reviewNotes: state.reviewNotes,
         checklistStatus: state.checklistStatus,
+        actionItems: state.actionItems,
         reviewSnapshots: state.reviewSnapshots,
       }),
     }
