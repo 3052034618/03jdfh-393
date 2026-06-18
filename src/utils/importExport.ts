@@ -14,6 +14,10 @@ import type {
   Priority,
   FieldMapping,
   ImportConfirmedMappings,
+  ReviewSnapshot,
+  SnapshotComparison,
+  IssueCategory,
+  ChecklistStatus,
 } from '@/types';
 import type { NarrativeIssue, RhythmIssue, ForeshadowItem } from '@/types';
 import { emotionLabel, spaceTypeLabel } from './diagnosis';
@@ -247,8 +251,19 @@ export function detectFieldMappings(raw: unknown): {
     }
   });
 
-  const firstFloorData = data.floors[0];
-  const firstRooms = Array.isArray(firstFloorData.rooms) ? firstFloorData.rooms : [];
+  const firstFloorData = data.floors[0] as Record<string, unknown>;
+  let firstRooms: ImportedRoom[] = [];
+  let roomsKeyFound = false;
+  for (const alias of FLOOR_FIELD_ALIASES.find((a) => a.target === 'rooms')?.keys || []) {
+    if (alias in firstFloorData && Array.isArray(firstFloorData[alias])) {
+      firstRooms = firstFloorData[alias] as ImportedRoom[];
+      roomsKeyFound = true;
+      break;
+    }
+  }
+  if (!roomsKeyFound && Array.isArray(firstFloorData.rooms)) {
+    firstRooms = firstFloorData.rooms;
+  }
   if (firstRooms.length > 0) {
     const firstRoom = firstRooms[0] as Record<string, unknown>;
     const roomKeys = Object.keys(firstRoom);
@@ -300,19 +315,22 @@ function applyMappingsToFloors(
 ): ImportedFloor[] {
   const roomKeyMap: Record<string, string> = {};
   const floorKeyMap: Record<string, string> = {};
+  const reverseFloorKeyMap: Record<string, string> = {};
 
   Object.entries(mappings).forEach(([sourceKey, targetKey]) => {
     const isFloorAlias = FLOOR_FIELD_ALIASES.some((a) => a.keys.includes(sourceKey));
     if (isFloorAlias) {
       floorKeyMap[sourceKey] = targetKey;
+      reverseFloorKeyMap[targetKey] = sourceKey;
     } else {
       roomKeyMap[sourceKey] = targetKey;
     }
   });
 
   return rawFloors.map((rawFloor) => {
+    const rawFloorObj = rawFloor as unknown as Record<string, unknown>;
     const mappedFloor: Record<string, unknown> = {};
-    Object.entries(rawFloor as unknown as Record<string, unknown>).forEach(([key, val]) => {
+    Object.entries(rawFloorObj).forEach(([key, val]) => {
       const targetKey = floorKeyMap[key] || key;
       if (targetKey === 'rooms' && !Array.isArray(val)) {
         mappedFloor.rooms = [];
@@ -321,7 +339,10 @@ function applyMappingsToFloors(
       }
     });
 
-    const rawRooms = Array.isArray(rawFloor.rooms) ? rawFloor.rooms : [];
+    const roomsSourceKey = reverseFloorKeyMap['rooms'] || 'rooms';
+    const rawRoomsRaw = rawFloorObj[roomsSourceKey];
+    const rawRooms: ImportedRoom[] = Array.isArray(rawRoomsRaw) ? rawRoomsRaw as ImportedRoom[] : [];
+
     mappedFloor.rooms = rawRooms.map((rawRoom) => {
       const mappedRoom: Record<string, unknown> = {};
       Object.entries(rawRoom as unknown as Record<string, unknown>).forEach(([key, val]) => {
@@ -633,6 +654,186 @@ export function exportReportToText(
   lines.push('======================================');
   lines.push('本报告由 HAUNT LAB 空间叙事评审系统生成');
   lines.push('======================================');
+
+  return lines.join('\n');
+}
+
+const categoryLabelForExport: Record<IssueCategory, string> = {
+  narrative: '叙事连贯性',
+  rhythm: '恐怖节奏',
+  foreshadow: '伏笔回收',
+};
+
+const statusLabelForExport: Record<ChecklistStatus, string> = {
+  todo: '待处理',
+  adopted: '已采纳',
+  deferred: '暂缓',
+};
+
+export function exportMeetingSummaryToMarkdown(
+  snapshot: ReviewSnapshot,
+  comparison?: SnapshotComparison | null,
+  currentChecklist?: ChecklistItem[]
+): string {
+  const lines: string[] = [];
+  const createdAt = new Date(snapshot.createdAt).toLocaleString('zh-CN');
+
+  lines.push(`# 评审会纪要：${snapshot.meetingTitle || '未命名会议'}`);
+  lines.push('');
+  lines.push(`> **会议时间**：${createdAt}`);
+  if (snapshot.attendees) {
+    lines.push(`> **参会人**：${snapshot.attendees}`);
+  }
+  lines.push(`> **叙事指数**：${snapshot.overallScore} / 100`);
+  lines.push(`> **问题总数**：${snapshot.totalIssueCount} · 待处理 ${snapshot.todoCount} · 已采纳 ${snapshot.adoptedCount} · 暂缓 ${snapshot.deferredCount}`);
+  lines.push(`> **评审备注**：${snapshot.noteCount} 条`);
+  lines.push('');
+
+  if (snapshot.meetingConclusion) {
+    lines.push('## 结论摘要');
+    lines.push('');
+    lines.push(snapshot.meetingConclusion);
+    lines.push('');
+  }
+
+  if (comparison) {
+    lines.push('## 相较上次评审的变化');
+    lines.push('');
+    lines.push(`- **叙事指数变化**：${comparison.scoreChange >= 0 ? '+' : ''}${comparison.scoreChange}`);
+    if (comparison.newIssues.length > 0) {
+      lines.push(`- **新增问题**：${comparison.newIssues.length} 项`);
+    }
+    if (comparison.resolvedIssues.length > 0) {
+      lines.push(`- **已解决（不再出现）**：${comparison.resolvedIssues.length} 项`);
+    }
+    if (comparison.statusChanges.length > 0) {
+      lines.push(`- **状态变更**：${comparison.statusChanges.length} 项`);
+    }
+    if (comparison.noteChanges.length > 0) {
+      lines.push(`- **备注更新**：${comparison.noteChanges.length} 项`);
+    }
+    lines.push('');
+
+    if (comparison.newIssues.length > 0) {
+      lines.push('### 新增问题');
+      lines.push('');
+      comparison.newIssues.forEach((it, i) => {
+        lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
+      });
+      lines.push('');
+    }
+
+    if (comparison.resolvedIssues.length > 0) {
+      lines.push('### 已解决问题（本次蓝图中不再出现）');
+      lines.push('');
+      comparison.resolvedIssues.forEach((it, i) => {
+        lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
+      });
+      lines.push('');
+    }
+
+    if (comparison.statusChanges.length > 0) {
+      lines.push('### 状态变更');
+      lines.push('');
+      comparison.statusChanges.forEach((it, i) => {
+        lines.push(`${i + 1}. ${statusLabelForExport[it.from]} → **${statusLabelForExport[it.to]}** · ${it.description}`);
+      });
+      lines.push('');
+    }
+
+    if (comparison.noteChanges.length > 0) {
+      lines.push('### 备注更新');
+      lines.push('');
+      comparison.noteChanges.forEach((it, i) => {
+        lines.push(`${i + 1}. ${it.description}`);
+        if (it.oldNote) lines.push(`   - 上次：${it.oldNote}`);
+        if (it.newNote) lines.push(`   - 本次：${it.newNote}`);
+        lines.push('');
+      });
+    }
+  }
+
+  lines.push('## 修改清单（按状态）');
+  lines.push('');
+  const todoItems = snapshot.issueRegistry.filter(
+    (it) => (snapshot.checklistStatus[it.id] || 'todo') === 'todo'
+  );
+  const adoptedItems = snapshot.issueRegistry.filter(
+    (it) => snapshot.checklistStatus[it.id] === 'adopted'
+  );
+  const deferredItems = snapshot.issueRegistry.filter(
+    (it) => snapshot.checklistStatus[it.id] === 'deferred'
+  );
+
+  lines.push(`### 待处理（${todoItems.length}）`);
+  lines.push('');
+  if (todoItems.length === 0) {
+    lines.push('_无_');
+  } else {
+    todoItems.forEach((it, i) => {
+      lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
+      const note = snapshot.reviewNotes[it.id];
+      if (note) lines.push(`   - 评审备注：${note}`);
+      lines.push('');
+    });
+  }
+
+  lines.push(`### 已采纳（${adoptedItems.length}）`);
+  lines.push('');
+  if (adoptedItems.length === 0) {
+    lines.push('_无_');
+  } else {
+    adoptedItems.forEach((it, i) => {
+      lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
+      const note = snapshot.reviewNotes[it.id];
+      if (note) lines.push(`   - 评审备注：${note}`);
+      lines.push('');
+    });
+  }
+
+  lines.push(`### 暂缓（${deferredItems.length}）`);
+  lines.push('');
+  if (deferredItems.length === 0) {
+    lines.push('_无_');
+  } else {
+    deferredItems.forEach((it, i) => {
+      lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
+      const note = snapshot.reviewNotes[it.id];
+      if (note) lines.push(`   - 评审备注：${note}`);
+      lines.push('');
+    });
+  }
+
+  const itemsWithNotes = snapshot.issueRegistry.filter(
+    (it) => snapshot.reviewNotes[it.id] && snapshot.reviewNotes[it.id].trim().length > 0
+  );
+  if (itemsWithNotes.length > 0) {
+    lines.push('## 评审备注汇总');
+    lines.push('');
+    itemsWithNotes.forEach((it, i) => {
+      lines.push(`${i + 1}. [${categoryLabelForExport[it.category]}] ${it.description}`);
+      lines.push(`   - 状态：**${statusLabelForExport[snapshot.checklistStatus[it.id] || 'todo']}**`);
+      lines.push(`   - 备注：${snapshot.reviewNotes[it.id]}`);
+      lines.push('');
+    });
+  }
+
+  if (currentChecklist && currentChecklist.length > 0) {
+    lines.push('## 当前待处理（最新报告）');
+    lines.push('');
+    const todoNow = currentChecklist.filter(
+      (it) => (snapshot.checklistStatus[it.id] || 'todo') === 'todo'
+    );
+    todoNow.forEach((it, i) => {
+      lines.push(`${i + 1}. [${categoryLabelForExport[it.category]} / ${priorityLabel[it.priority]}] ${it.description}`);
+      lines.push(`   - 关联：${it.relatedRoom}`);
+      lines.push(`   - 建议：${it.suggestion}`);
+      lines.push('');
+    });
+  }
+
+  lines.push('---');
+  lines.push(`> 由 AI 鬼屋空间蓝图助手生成 · ${createdAt}`);
 
   return lines.join('\n');
 }

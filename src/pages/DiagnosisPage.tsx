@@ -21,16 +21,26 @@ import {
   Trash2,
   Clock,
   X,
+  GitCompare,
+  Plus,
+  Users,
+  BookOpen,
+  FileCheck2,
+  PlusCircle,
+  MinusCircle,
+  Tag,
+  Edit,
 } from 'lucide-react';
-import { useBlueprintStore } from '@/store/blueprintStore';
+import { useBlueprintStore, categoryLabelForSnapshot } from '@/store/blueprintStore';
 import { getEmotionCurve, emotionLabel, spaceTypeLabel } from '@/utils/diagnosis';
-import type { Priority, ForeshadowStatus, ReviewSnapshot } from '@/types';
+import type { Priority, ForeshadowStatus, ReviewSnapshot, ChecklistStatus, SnapshotComparison } from '@/types';
 import { cn } from '@/lib/utils';
 import EmotionCurveChart from '@/components/EmotionCurveChart';
 import {
   exportReportToMarkdown,
   exportReportToText,
   downloadFile,
+  exportMeetingSummaryToMarkdown,
 } from '@/utils/importExport';
 
 const priorityLabel: Record<Priority, string> = {
@@ -109,6 +119,192 @@ function ReviewNoteField({
   );
 }
 
+function ComparisonPanel({
+  comparison,
+  statusColorCls,
+  statusLabelShort,
+}: {
+  comparison: SnapshotComparison | null;
+  statusColorCls: Record<ChecklistStatus, string>;
+  statusLabelShort: Record<ChecklistStatus, string>;
+}) {
+  if (!comparison) {
+    return <p className="text-center py-8 text-sm text-text-muted">无法生成对比数据。</p>;
+  }
+
+  const totalChanges =
+    comparison.newIssues.length +
+    comparison.resolvedIssues.length +
+    comparison.statusChanges.length +
+    comparison.noteChanges.length;
+
+  if (totalChanges === 0) {
+    return (
+      <div className="text-center py-12">
+        <CheckCircle2 className="w-10 h-10 text-status-low mx-auto mb-3 opacity-50" />
+        <p className="text-sm text-status-low">与上次评审相比无任何变化。</p>
+        <p className="text-xs text-text-muted mt-1">蓝图结构、处理状态、评审备注均保持一致。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="p-3 bg-status-low/5 border border-status-low/20">
+          <p className="text-xs text-text-muted mb-1 flex items-center gap-1">
+            <GitCompare className="w-3 h-3" /> 指数变化
+          </p>
+          <p className={cn(
+            'text-2xl font-display font-bold',
+            comparison.scoreChange >= 0 ? 'text-status-low' : 'text-accent-crimsonLight'
+          )}>
+            {comparison.scoreChange >= 0 ? '+' : ''}
+            {comparison.scoreChange}
+          </p>
+        </div>
+        <div className="p-3 bg-accent-crimson/5 border border-accent-crimson/30">
+          <p className="text-xs text-text-muted mb-1 flex items-center gap-1">
+            <PlusCircle className="w-3 h-3" /> 新增问题
+          </p>
+          <p className="text-2xl font-mono text-accent-crimsonLight font-bold">{comparison.newIssues.length}</p>
+        </div>
+        <div className="p-3 bg-status-low/5 border border-status-low/20">
+          <p className="text-xs text-text-muted mb-1 flex items-center gap-1">
+            <MinusCircle className="w-3 h-3" /> 已解决
+          </p>
+          <p className="text-2xl font-mono text-status-low font-bold">{comparison.resolvedIssues.length}</p>
+        </div>
+        <div className="p-3 bg-accent-gold/5 border border-accent-gold/30">
+          <p className="text-xs text-text-muted mb-1 flex items-center gap-1">
+            <Tag className="w-3 h-3" /> 其他变更
+          </p>
+          <p className="text-2xl font-mono text-accent-gold font-bold">
+            {comparison.statusChanges.length + comparison.noteChanges.length}
+          </p>
+        </div>
+      </div>
+
+      {comparison.newIssues.length > 0 && (
+        <div className="card-panel p-4 border-l-4 border-accent-crimson/60">
+          <h4 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
+            <PlusCircle className="w-4 h-4 text-accent-crimsonLight" />
+            新增问题 · {comparison.newIssues.length}
+          </h4>
+          <ul className="space-y-2">
+            {comparison.newIssues.map((it, i) => (
+              <li key={it.id} className="p-3 bg-accent-crimson/5 border border-accent-crimson/20">
+                <div className="flex items-start gap-2">
+                  <span className="text-xs font-mono text-text-muted w-6 shrink-0">{i + 1}.</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30 mr-2">
+                      {categoryLabelForSnapshot[it.category]}
+                    </span>
+                    <span className="text-sm text-text-secondary">{it.description}</span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {comparison.resolvedIssues.length > 0 && (
+        <div className="card-panel p-4 border-l-4 border-status-low/60">
+          <h4 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
+            <MinusCircle className="w-4 h-4 text-status-low" />
+            已解决（不再出现在当前报告） · {comparison.resolvedIssues.length}
+          </h4>
+          <ul className="space-y-2">
+            {comparison.resolvedIssues.map((it, i) => (
+              <li key={it.id} className="p-3 bg-status-low/5 border border-status-low/20 opacity-80">
+                <div className="flex items-start gap-2">
+                  <span className="text-xs font-mono text-text-muted w-6 shrink-0">{i + 1}.</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30 mr-2">
+                      {categoryLabelForSnapshot[it.category]}
+                    </span>
+                    <span className="text-sm text-text-secondary line-through">{it.description}</span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {comparison.statusChanges.length > 0 && (
+        <div className="card-panel p-4 border-l-4 border-accent-gold/60">
+          <h4 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
+            <Tag className="w-4 h-4 text-accent-gold" />
+            处理状态变更 · {comparison.statusChanges.length}
+          </h4>
+          <ul className="space-y-2">
+            {comparison.statusChanges.map((it, i) => (
+              <li key={it.id} className="p-3 bg-bg-tertiary/30 border border-border-subtle">
+                <div className="flex items-start gap-3">
+                  <span className="text-xs font-mono text-text-muted w-6 shrink-0">{i + 1}.</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text-secondary mb-1.5">{it.description}</p>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className={cn('tag text-[10px]', statusColorCls[it.from])}>
+                        {statusLabelShort[it.from]}
+                      </span>
+                      <ArrowRight className="w-3 h-3 text-accent-gold shrink-0" />
+                      <span className={cn('tag text-[10px]', statusColorCls[it.to])}>
+                        {statusLabelShort[it.to]}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {comparison.noteChanges.length > 0 && (
+        <div className="card-panel p-4 border-l-4 border-accent-gold/60">
+          <h4 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
+            <Edit className="w-4 h-4 text-accent-gold" />
+            评审备注更新 · {comparison.noteChanges.length}
+          </h4>
+          <ul className="space-y-3">
+            {comparison.noteChanges.map((it, i) => (
+              <li key={it.id} className="p-3 bg-bg-tertiary/30 border border-border-subtle">
+                <div className="flex items-start gap-3">
+                  <span className="text-xs font-mono text-text-muted w-6 shrink-0">{i + 1}.</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text-primary mb-2">{it.description}</p>
+                    {it.oldNote && (
+                      <div className="mb-1.5">
+                        <p className="text-[10px] text-text-muted font-mono mb-0.5">上次备注：</p>
+                        <p className="text-xs text-text-secondary bg-bg-tertiary/70 px-2 py-1 border-l-2 border-border-strong">
+                          {it.oldNote}
+                        </p>
+                      </div>
+                    )}
+                    {it.newNote ? (
+                      <div>
+                        <p className="text-[10px] text-accent-gold font-mono mb-0.5">本次备注：</p>
+                        <p className="text-xs text-text-secondary bg-accent-gold/5 px-2 py-1 border-l-2 border-accent-gold/50">
+                          {it.newNote}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-status-low">✓ 备注已清空</p>
+                    )}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DiagnosisPage() {
   const {
     getAllRooms,
@@ -120,6 +316,7 @@ export default function DiagnosisPage() {
     reviewSnapshots,
     saveReviewSnapshot,
     deleteReviewSnapshot,
+    compareSnapshot,
   } = useBlueprintStore();
   const allRooms = getAllRooms();
   const diagnosis = useMemo(() => getDiagnosis(), [getDiagnosis]);
@@ -128,6 +325,23 @@ export default function DiagnosisPage() {
 
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [viewingSnapshot, setViewingSnapshot] = useState<ReviewSnapshot | null>(null);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveTitle, setSaveTitle] = useState('');
+  const [saveAttendees, setSaveAttendees] = useState('');
+  const [saveConclusion, setSaveConclusion] = useState('');
+  const [snapshotDetailTab, setSnapshotDetailTab] = useState<'overview' | 'notes' | 'checklist' | 'compare'>('overview');
+  const [lastSavedId, setLastSavedId] = useState<string | null>(null);
+
+  const statusLabelShort: Record<ChecklistStatus, string> = {
+    todo: '待处理',
+    adopted: '已采纳',
+    deferred: '暂缓',
+  };
+  const statusColorCls: Record<ChecklistStatus, string> = {
+    todo: 'tag bg-accent-crimson/10 text-accent-crimsonLight border-accent-crimson/30',
+    adopted: 'tag bg-status-low/10 text-status-low border-status-low/30',
+    deferred: 'tag bg-status-medium/10 text-status-medium border-status-medium/30',
+  };
 
   const scoreColor =
     diagnosis.overallScore >= 85
@@ -137,6 +351,25 @@ export default function DiagnosisPage() {
         : diagnosis.overallScore >= 50
           ? '#d97a3a'
           : '#c93d4f';
+
+  const handleSaveSnapshot = () => {
+    setSaveTitle(`第 ${reviewSnapshots.length + 1} 次评审 · ${new Date().toLocaleDateString('zh-CN')}`);
+    setSaveAttendees('');
+    setSaveConclusion('');
+    setShowSaveDialog(true);
+  };
+
+  const confirmSaveSnapshot = () => {
+    const snap = saveReviewSnapshot({
+      meetingTitle: saveTitle,
+      attendees: saveAttendees,
+      meetingConclusion: saveConclusion,
+    });
+    setLastSavedId(snap.id);
+    setShowSaveDialog(false);
+    setShowSnapshots(true);
+    setTimeout(() => setLastSavedId(null), 3000);
+  };
 
   const handleExportMarkdown = () => {
     const md = exportReportToMarkdown(diagnosis, checklist, reviewNotes, checklistStatus);
@@ -148,6 +381,14 @@ export default function DiagnosisPage() {
     const txt = exportReportToText(diagnosis, checklist, reviewNotes, checklistStatus);
     const date = new Date().toISOString().slice(0, 10);
     downloadFile(txt, `haunted-report-${date}.txt`, 'text/plain');
+  };
+
+  const handleExportMeetingSummary = (snap: ReviewSnapshot) => {
+    const comparison = compareSnapshot(snap.id);
+    const md = exportMeetingSummaryToMarkdown(snap, comparison, checklist);
+    const stamp = new Date(snap.createdAt).toISOString().slice(0, 10);
+    const safeTitle = (snap.meetingTitle || 'meeting-notes').replace(/[\\/:*?"<>|]/g, '-');
+    downloadFile(md, `会议纪要-${stamp}-${safeTitle}.md`, 'text/markdown');
   };
 
   if (allRooms.length === 0) {
@@ -178,7 +419,7 @@ export default function DiagnosisPage() {
           </div>
           <div className="flex gap-2 flex-wrap">
             <button
-              onClick={() => saveReviewSnapshot()}
+              onClick={handleSaveSnapshot}
               className="btn-secondary text-xs inline-flex items-center gap-1.5"
             >
               <Save className="w-3.5 h-3.5" />
@@ -295,34 +536,87 @@ export default function DiagnosisPage() {
                 尚未保存过评审版本。点击上方「保存版本」记录当前报告快照。
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {reviewSnapshots.map((snap) => (
                   <div
                     key={snap.id}
-                    className="p-4 bg-bg-tertiary/50 border border-border-subtle flex items-center gap-4 hover:border-accent-gold/30 transition-colors"
+                    className={cn(
+                      'p-4 bg-bg-tertiary/50 border flex items-start gap-4 hover:border-accent-gold/30 transition-colors',
+                      lastSavedId === snap.id
+                        ? 'border-accent-gold/60 bg-accent-gold/5 shadow-[0_0_0_1px_rgba(201,169,98,0.4)]'
+                        : 'border-border-subtle'
+                    )}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <Clock className="w-3.5 h-3.5 text-text-muted shrink-0" />
                         <span className="text-sm text-text-primary font-mono">
                           {new Date(snap.createdAt).toLocaleString('zh-CN')}
                         </span>
+                        {snap.meetingTitle && (
+                          <span className="text-sm font-medium text-accent-gold flex items-center gap-1">
+                            <BookOpen className="w-3.5 h-3.5" />
+                            {snap.meetingTitle}
+                          </span>
+                        )}
+                        {lastSavedId === snap.id && (
+                          <span className="text-[10px] bg-accent-gold/20 text-accent-gold px-1.5 py-0.5 font-mono">
+                            刚保存
+                          </span>
+                        )}
                       </div>
-                      <div className="flex flex-wrap gap-3 text-xs text-text-muted font-mono">
+                      {snap.attendees && (
+                        <div className="text-xs text-text-muted mb-1 flex items-center gap-1">
+                          <Users className="w-3 h-3" />
+                          {snap.attendees}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-3 text-xs text-text-muted font-mono mt-1">
                         <span>指数 {snap.overallScore}</span>
                         <span>叙事 {snap.narrativeCount}</span>
                         <span>节奏 {snap.rhythmCount}</span>
                         <span>伏笔待回收 {snap.foreshadowUnresolvedCount}</span>
                         <span className="text-accent-gold">备注 {snap.noteCount}</span>
-                        <span>待处理 {snap.todoCount}</span>
+                        <span className="text-accent-crimsonLight">待处理 {snap.todoCount}</span>
+                        <span className="text-status-low">已采纳 {snap.adoptedCount}</span>
+                        <span className="text-status-medium">暂缓 {snap.deferredCount}</span>
                       </div>
+                      {snap.meetingConclusion && (
+                        <p className="text-xs text-text-secondary mt-2 bg-bg-tertiary/60 px-2 py-1 border-l-2 border-accent-gold/40">
+                          {snap.meetingConclusion.length > 120
+                            ? snap.meetingConclusion.slice(0, 120) + '…'
+                            : snap.meetingConclusion}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                       <button
-                        onClick={() => setViewingSnapshot(snap)}
+                        onClick={() => {
+                          setViewingSnapshot(snap);
+                          setSnapshotDetailTab('overview');
+                        }}
                         className="btn-secondary text-xs px-3 py-1.5"
                       >
                         查看
+                      </button>
+                      <button
+                        onClick={() => handleExportMeetingSummary(snap)}
+                        className="btn-secondary text-xs px-3 py-1.5 inline-flex items-center gap-1"
+                        title="导出会议纪要 Markdown"
+                      >
+                        <FileCode className="w-3 h-3" />
+                        纪要
+                      </button>
+                      <button
+                        onClick={() => {
+                          setViewingSnapshot(snap);
+                          setSnapshotDetailTab('compare');
+                        }}
+                        className="btn-secondary text-xs px-3 py-1.5 inline-flex items-center gap-1"
+                        title="与当前报告对比"
+                      >
+                        <GitCompare className="w-3 h-3" />
+                        对比
                       </button>
                       <button
                         onClick={() => deleteReviewSnapshot(snap.id)}
@@ -338,82 +632,311 @@ export default function DiagnosisPage() {
           </div>
         )}
 
-        {viewingSnapshot && (
+        {showSaveDialog && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-bg-secondary border border-border-strong w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl">
+            <div className="bg-bg-secondary border border-border-strong w-full max-w-lg shadow-2xl animate-slideUp">
               <div className="p-5 border-b border-border-subtle flex items-center justify-between">
-                <div>
-                  <h3 className="font-display text-lg text-accent-gold flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    版本详情
-                  </h3>
-                  <p className="text-xs text-text-muted mt-1 font-mono">
-                    {new Date(viewingSnapshot.createdAt).toLocaleString('zh-CN')}
-                  </p>
-                </div>
+                <h3 className="font-display text-lg text-accent-gold flex items-center gap-2">
+                  <Save className="w-4 h-4" />
+                  保存评审会版本
+                </h3>
                 <button
-                  onClick={() => setViewingSnapshot(null)}
+                  onClick={() => setShowSaveDialog(false)}
                   className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="card-panel p-3">
-                    <p className="text-xs text-text-muted mb-1">叙事指数</p>
-                    <p className={cn(
-                      'text-2xl font-display font-bold',
-                      viewingSnapshot.overallScore >= 70 ? 'text-status-low' : 'text-accent-crimsonLight'
-                    )}>
-                      {viewingSnapshot.overallScore}
-                    </p>
-                  </div>
-                  <div className="card-panel p-3">
-                    <p className="text-xs text-text-muted mb-1">总问题数</p>
-                    <p className="text-2xl font-display font-bold text-text-primary">
-                      {viewingSnapshot.totalIssueCount}
-                    </p>
-                  </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="text-xs text-text-muted font-mono mb-1.5 block flex items-center gap-1">
+                    <BookOpen className="w-3 h-3" />
+                    会议标题
+                  </label>
+                  <input
+                    type="text"
+                    value={saveTitle}
+                    onChange={(e) => setSaveTitle(e.target.value)}
+                    placeholder="如：第3次叙事评审会 · 洗衣房方案定稿"
+                    className="input-field w-full"
+                  />
                 </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="card-panel p-3 text-center">
-                    <p className="text-xs text-text-muted mb-1">叙事断层</p>
-                    <p className="text-lg font-mono text-accent-crimsonLight">{viewingSnapshot.narrativeCount}</p>
-                  </div>
-                  <div className="card-panel p-3 text-center">
-                    <p className="text-xs text-text-muted mb-1">节奏问题</p>
-                    <p className="text-lg font-mono text-status-high">{viewingSnapshot.rhythmCount}</p>
-                  </div>
-                  <div className="card-panel p-3 text-center">
-                    <p className="text-xs text-text-muted mb-1">伏笔待回收</p>
-                    <p className="text-lg font-mono text-status-medium">{viewingSnapshot.foreshadowUnresolvedCount}</p>
-                  </div>
+                <div>
+                  <label className="text-xs text-text-muted font-mono mb-1.5 block flex items-center gap-1">
+                    <Users className="w-3 h-3" />
+                    参会人
+                  </label>
+                  <input
+                    type="text"
+                    value={saveAttendees}
+                    onChange={(e) => setSaveAttendees(e.target.value)}
+                    placeholder="如：编剧组老张、场景王工、导演组小李"
+                    className="input-field w-full"
+                  />
                 </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="p-3 border-l-2 border-accent-crimson bg-accent-crimson/5">
-                    <p className="text-xs text-text-muted mb-0.5">待处理</p>
-                    <p className="text-lg font-mono text-accent-crimsonLight">{viewingSnapshot.todoCount}</p>
-                  </div>
-                  <div className="p-3 border-l-2 border-status-low bg-status-low/5">
-                    <p className="text-xs text-text-muted mb-0.5">已采纳</p>
-                    <p className="text-lg font-mono text-status-low">{viewingSnapshot.adoptedCount}</p>
-                  </div>
-                  <div className="p-3 border-l-2 border-status-medium bg-status-medium/5">
-                    <p className="text-xs text-text-muted mb-0.5">暂缓</p>
-                    <p className="text-lg font-mono text-status-medium">{viewingSnapshot.deferredCount}</p>
-                  </div>
+                <div>
+                  <label className="text-xs text-text-muted font-mono mb-1.5 block flex items-center gap-1">
+                    <FileCheck2 className="w-3 h-3" />
+                    结论摘要
+                  </label>
+                  <textarea
+                    value={saveConclusion}
+                    onChange={(e) => setSaveConclusion(e.target.value)}
+                    placeholder="本次会议结论与决策要点…"
+                    rows={4}
+                    className="input-field w-full resize-none"
+                  />
                 </div>
-                <div className="card-panel p-3">
-                  <p className="text-xs text-text-muted mb-1">评审备注</p>
-                  <p className="text-sm text-accent-gold">{viewingSnapshot.noteCount} 条已填写</p>
-                </div>
-                <div className="card-panel p-3">
-                  <p className="text-xs text-text-muted mb-2">评审小结</p>
-                  <p className="text-sm text-text-secondary leading-relaxed">{viewingSnapshot.summary}</p>
+                <div className="text-xs text-text-muted font-mono p-3 bg-bg-tertiary/40 border border-border-subtle">
+                  将记录：叙事指数 {diagnosis.overallScore} · 问题 {checklist.length} 项 · 备注 {Object.values(reviewNotes).filter(n => n.trim()).length} 条
                 </div>
               </div>
-              <div className="p-5 border-t border-border-subtle flex justify-end">
+              <div className="p-5 border-t border-border-subtle flex gap-3 justify-end">
+                <button onClick={() => setShowSaveDialog(false)} className="btn-secondary">
+                  取消
+                </button>
+                <button onClick={confirmSaveSnapshot} className="btn-primary inline-flex items-center gap-1.5">
+                  <Save className="w-3.5 h-3.5" />
+                  确认保存
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {viewingSnapshot && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-bg-secondary border border-border-strong w-full max-w-3xl max-h-[88vh] flex flex-col shadow-2xl">
+              <div className="p-5 border-b border-border-subtle flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="font-display text-lg text-accent-gold flex items-center gap-2 flex-wrap">
+                    <Clock className="w-4 h-4" />
+                    版本详情
+                    {viewingSnapshot.meetingTitle && (
+                      <span className="text-text-primary text-base normal-case">· {viewingSnapshot.meetingTitle}</span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-text-muted mt-1 font-mono">
+                    {new Date(viewingSnapshot.createdAt).toLocaleString('zh-CN')}
+                    {viewingSnapshot.attendees && ` · 参会：${viewingSnapshot.attendees}`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => handleExportMeetingSummary(viewingSnapshot)}
+                    className="btn-secondary text-xs inline-flex items-center gap-1"
+                  >
+                    <FileCode className="w-3 h-3" />
+                    导出纪要
+                  </button>
+                  <button
+                    onClick={() => setViewingSnapshot(null)}
+                    className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-5 pt-4 flex gap-1 border-b border-border-subtle">
+                {(['overview', 'notes', 'checklist', 'compare'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setSnapshotDetailTab(tab)}
+                    className={cn(
+                      'px-4 py-2 text-xs font-mono border-b-2 -mb-px transition-colors',
+                      snapshotDetailTab === tab
+                        ? 'border-accent-gold text-accent-gold'
+                        : 'border-transparent text-text-muted hover:text-text-secondary'
+                    )}
+                  >
+                    {tab === 'overview' && '📊 总览'}
+                    {tab === 'notes' && `📝 评审备注 (${viewingSnapshot.noteCount})`}
+                    {tab === 'checklist' && `✅ 修改清单 (${viewingSnapshot.totalIssueCount})`}
+                    {tab === 'compare' && '⚖️ 对比当前'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                {snapshotDetailTab === 'overview' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="card-panel p-4">
+                        <p className="text-xs text-text-muted mb-1">叙事指数</p>
+                        <p className={cn(
+                          'text-3xl font-display font-bold',
+                          viewingSnapshot.overallScore >= 70 ? 'text-status-low' : 'text-accent-crimsonLight'
+                        )}>
+                          {viewingSnapshot.overallScore}
+                        </p>
+                      </div>
+                      <div className="card-panel p-4">
+                        <p className="text-xs text-text-muted mb-1">总问题数</p>
+                        <p className="text-3xl font-display font-bold text-text-primary">
+                          {viewingSnapshot.totalIssueCount}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="card-panel p-3 text-center">
+                        <p className="text-xs text-text-muted mb-1">叙事断层</p>
+                        <p className="text-lg font-mono text-accent-crimsonLight">{viewingSnapshot.narrativeCount}</p>
+                      </div>
+                      <div className="card-panel p-3 text-center">
+                        <p className="text-xs text-text-muted mb-1">节奏问题</p>
+                        <p className="text-lg font-mono text-status-high">{viewingSnapshot.rhythmCount}</p>
+                      </div>
+                      <div className="card-panel p-3 text-center">
+                        <p className="text-xs text-text-muted mb-1">伏笔待回收</p>
+                        <p className="text-lg font-mono text-status-medium">{viewingSnapshot.foreshadowUnresolvedCount}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="p-4 border-l-2 border-accent-crimson bg-accent-crimson/5">
+                        <p className="text-xs text-text-muted mb-0.5">待处理</p>
+                        <p className="text-xl font-mono text-accent-crimsonLight">{viewingSnapshot.todoCount}</p>
+                      </div>
+                      <div className="p-4 border-l-2 border-status-low bg-status-low/5">
+                        <p className="text-xs text-text-muted mb-0.5">已采纳</p>
+                        <p className="text-xl font-mono text-status-low">{viewingSnapshot.adoptedCount}</p>
+                      </div>
+                      <div className="p-4 border-l-2 border-status-medium bg-status-medium/5">
+                        <p className="text-xs text-text-muted mb-0.5">暂缓</p>
+                        <p className="text-xl font-mono text-status-medium">{viewingSnapshot.deferredCount}</p>
+                      </div>
+                    </div>
+                    {viewingSnapshot.meetingConclusion && (
+                      <div className="card-panel p-4 border-l-4 border-accent-gold/60">
+                        <p className="text-xs text-text-muted mb-2 flex items-center gap-1">
+                          <FileCheck2 className="w-3 h-3" /> 会议结论
+                        </p>
+                        <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+                          {viewingSnapshot.meetingConclusion}
+                        </p>
+                      </div>
+                    )}
+                    <div className="card-panel p-4">
+                      <p className="text-xs text-text-muted mb-2">AI 评审小结（当次）</p>
+                      <p className="text-sm text-text-secondary leading-relaxed">{viewingSnapshot.summary}</p>
+                    </div>
+                  </>
+                )}
+
+                {snapshotDetailTab === 'notes' && (
+                  <div className="space-y-3">
+                    {viewingSnapshot.issueRegistry
+                      .filter((it) => viewingSnapshot.reviewNotes[it.id]?.trim().length > 0)
+                      .length === 0 ? (
+                      <p className="text-center py-8 text-sm text-text-muted">本次评审未填写任何备注。</p>
+                    ) : (
+                      viewingSnapshot.issueRegistry
+                        .filter((it) => viewingSnapshot.reviewNotes[it.id]?.trim().length > 0)
+                        .map((it, i) => (
+                          <div key={it.id} className="card-panel p-4">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                              <span className="text-xs text-accent-gold font-mono">#{i + 1}</span>
+                              <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30">
+                                {categoryLabelForSnapshot[it.category]}
+                              </span>
+                              <span
+                                className={cn(
+                                  'tag text-[10px]',
+                                  statusColorCls[viewingSnapshot.checklistStatus[it.id] || 'todo']
+                                )}
+                              >
+                                {statusLabelShort[viewingSnapshot.checklistStatus[it.id] || 'todo']}
+                              </span>
+                            </div>
+                            <p className="text-sm text-text-primary mb-2 leading-relaxed">{it.description}</p>
+                            <div className="pl-3 border-l-2 border-accent-gold/40 bg-accent-gold/5 py-2 pr-3">
+                              <p className="text-[10px] text-accent-gold font-mono mb-1 flex items-center gap-1">
+                                <Edit className="w-2.5 h-2.5" /> 评审备注
+                              </p>
+                              <p className="text-xs text-text-secondary leading-relaxed whitespace-pre-wrap">
+                                {viewingSnapshot.reviewNotes[it.id]}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                    )}
+                  </div>
+                )}
+
+                {snapshotDetailTab === 'checklist' && (
+                  <div className="space-y-4">
+                    {(['todo', 'adopted', 'deferred'] as const).map((st) => {
+                      const items = viewingSnapshot.issueRegistry.filter(
+                        (it) => (viewingSnapshot.checklistStatus[it.id] || 'todo') === st
+                      );
+                      return (
+                        <div key={st} className="card-panel p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-sm font-medium text-text-primary flex items-center gap-2">
+                              <span className={cn('tag text-[10px]', statusColorCls[st])}>
+                                {statusLabelShort[st]}
+                              </span>
+                              <span className="font-mono text-xs text-text-muted">共 {items.length} 项</span>
+                            </h4>
+                          </div>
+                          {items.length === 0 ? (
+                            <p className="text-center py-4 text-xs text-text-muted">无。</p>
+                          ) : (
+                            <ul className="space-y-2">
+                              {items.map((it, i) => (
+                                <li
+                                  key={it.id}
+                                  className={cn(
+                                    'p-3 bg-bg-tertiary/30 border border-border-subtle text-sm flex items-start gap-3',
+                                    st === 'adopted' && 'opacity-60'
+                                  )}
+                                >
+                                  <span className="text-xs font-mono text-text-muted w-6 shrink-0">{i + 1}.</span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                      <span className="tag text-[10px] bg-accent-gold/10 text-accent-gold border-accent-gold/30">
+                                        {categoryLabelForSnapshot[it.category]}
+                                      </span>
+                                    </div>
+                                    <p className={cn(
+                                      'text-text-secondary text-xs leading-relaxed',
+                                      st === 'adopted' && 'line-through'
+                                    )}>
+                                      {it.description}
+                                    </p>
+                                    {viewingSnapshot.reviewNotes[it.id]?.trim() && (
+                                      <p className="text-[10px] text-accent-gold mt-1 pl-2 border-l border-accent-gold/40">
+                                        备注：{viewingSnapshot.reviewNotes[it.id]}
+                                      </p>
+                                    )}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {snapshotDetailTab === 'compare' && (
+                  <ComparisonPanel
+                    comparison={compareSnapshot(viewingSnapshot.id)}
+                    statusColorCls={statusColorCls}
+                    statusLabelShort={statusLabelShort}
+                  />
+                )}
+              </div>
+
+              <div className="p-5 border-t border-border-subtle flex justify-end gap-3">
+                <button
+                  onClick={() => handleExportMeetingSummary(viewingSnapshot)}
+                  className="btn-secondary inline-flex items-center gap-1.5"
+                >
+                  <FileCode className="w-3.5 h-3.5" />
+                  导出会议纪要
+                </button>
                 <button
                   onClick={() => setViewingSnapshot(null)}
                   className="btn-primary"

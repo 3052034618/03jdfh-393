@@ -16,6 +16,9 @@ import type {
   ImportResult,
   ReviewSnapshot,
   ImportConfirmedMappings,
+  SnapshotComparison,
+  SnapshotCreateInput,
+  IssueCategory,
 } from '@/types';
 import {
   getAllRoomsOrdered,
@@ -30,6 +33,89 @@ import { validateAndImportBlueprintWithMappings } from '@/utils/importExport';
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 10);
+}
+
+const categoryLabelForSnapshot: Record<IssueCategory, string> = {
+  narrative: '叙事连贯性',
+  rhythm: '恐怖节奏',
+  foreshadow: '伏笔回收',
+};
+
+export function compareSnapshotWithCurrent(
+  snapshot: ReviewSnapshot,
+  currentChecklist: ChecklistItem[],
+  currentReviewNotes: ReviewNotesMap,
+  currentStatuses: ChecklistStatusMap
+): SnapshotComparison {
+  const currentScore = 0;
+  const snapshotRegistryMap = new Map(
+    snapshot.issueRegistry.map((it) => [it.id, it])
+  );
+  const currentRegistryMap = new Map(
+    currentChecklist.map((it) => [it.id, { id: it.id, category: it.category, description: it.description }])
+  );
+
+  const newIssues: SnapshotComparison['newIssues'] = [];
+  const resolvedIssues: SnapshotComparison['resolvedIssues'] = [];
+  currentChecklist.forEach((it) => {
+    if (!snapshotRegistryMap.has(it.id)) {
+      newIssues.push({ id: it.id, category: it.category, description: it.description });
+    }
+  });
+  snapshot.issueRegistry.forEach((it) => {
+    if (!currentRegistryMap.has(it.id)) {
+      resolvedIssues.push(it);
+    }
+  });
+
+  const statusChanges: SnapshotComparison['statusChanges'] = [];
+  currentChecklist.forEach((it) => {
+    const oldStatus = snapshot.checklistStatus[it.id] || 'todo';
+    const newStatus = currentStatuses[it.id] || 'todo';
+    if (oldStatus !== newStatus) {
+      statusChanges.push({
+        id: it.id,
+        description: it.description,
+        from: oldStatus,
+        to: newStatus,
+      });
+    }
+  });
+
+  const noteChanges: SnapshotComparison['noteChanges'] = [];
+  currentChecklist.forEach((it) => {
+    const oldNote = snapshot.reviewNotes[it.id] || '';
+    const newNote = currentReviewNotes[it.id] || '';
+    if (oldNote !== newNote && (oldNote.length > 0 || newNote.length > 0)) {
+      noteChanges.push({
+        id: it.id,
+        description: it.description,
+        oldNote,
+        newNote,
+      });
+    }
+  });
+  snapshot.issueRegistry.forEach((it) => {
+    if (!currentRegistryMap.has(it.id)) {
+      const oldNote = snapshot.reviewNotes[it.id] || '';
+      if (oldNote.length > 0) {
+        noteChanges.push({
+          id: it.id,
+          description: it.description,
+          oldNote,
+          newNote: '',
+        });
+      }
+    }
+  });
+
+  return {
+    scoreChange: currentScore - snapshot.overallScore,
+    newIssues,
+    resolvedIssues,
+    statusChanges,
+    noteChanges,
+  };
 }
 
 interface BlueprintStore {
@@ -59,11 +145,13 @@ interface BlueprintStore {
   setChecklistItemStatus: (itemId: string, status: ChecklistStatus) => void;
   getChecklistItemStatus: (itemId: string) => ChecklistStatus;
 
-  importJSONBlueprint: (rawJSON: string, mappings?: ImportConfirmedMappings) => ImportResult;
+  previewImportJSONBlueprint: (rawJSON: string, mappings?: ImportConfirmedMappings) => ImportResult;
+  confirmImportJSONBlueprint: (rawJSON: string, mappings?: ImportConfirmedMappings) => ImportResult;
   importBlueprintFromFloors: (floors: Floor[]) => void;
 
-  saveReviewSnapshot: () => ReviewSnapshot;
+  saveReviewSnapshot: (input?: SnapshotCreateInput) => ReviewSnapshot;
   deleteReviewSnapshot: (id: string) => void;
+  compareSnapshot: (snapshotId: string) => SnapshotComparison | null;
 
   getAllRooms: () => Room[];
   getNarrativeIssues: () => NarrativeIssue[];
@@ -75,6 +163,8 @@ interface BlueprintStore {
   loadSampleData: () => void;
   clearAll: () => void;
 }
+
+export { categoryLabelForSnapshot };
 
 export const useBlueprintStore = create<BlueprintStore>()(
   persist(
@@ -180,7 +270,17 @@ export const useBlueprintStore = create<BlueprintStore>()(
 
       getChecklistItemStatus: (itemId) => get().checklistStatus[itemId] || 'todo',
 
-      importJSONBlueprint: (rawJSON, mappings) => {
+      previewImportJSONBlueprint: (rawJSON, mappings) => {
+        try {
+          const parsed = JSON.parse(rawJSON);
+          return validateAndImportBlueprintWithMappings(parsed, mappings);
+        } catch (e: unknown) {
+          const msg = e instanceof SyntaxError ? `JSON 语法错误：${e.message}` : '文件解析失败：未知错误';
+          return { success: false, errors: [msg] };
+        }
+      },
+
+      confirmImportJSONBlueprint: (rawJSON, mappings) => {
         try {
           const parsed = JSON.parse(rawJSON);
           const result = validateAndImportBlueprintWithMappings(parsed, mappings);
@@ -207,7 +307,7 @@ export const useBlueprintStore = create<BlueprintStore>()(
           checklistStatus: {},
         }),
 
-      saveReviewSnapshot: () => {
+      saveReviewSnapshot: (input) => {
         const state = get();
         const diagnosis = state.getDiagnosis();
         const checklist = state.getChecklist();
@@ -223,6 +323,14 @@ export const useBlueprintStore = create<BlueprintStore>()(
           else if (st === 'adopted') adoptedCount++;
           else deferredCount++;
         });
+
+        const issueRegistry: ReviewSnapshot['issueRegistry'] = checklist.map(
+          (it) => ({
+            id: it.id,
+            category: it.category,
+            description: it.description,
+          })
+        );
 
         const snapshot: ReviewSnapshot = {
           id: generateId(),
@@ -241,6 +349,10 @@ export const useBlueprintStore = create<BlueprintStore>()(
           totalIssueCount: checklist.length,
           reviewNotes: { ...notes },
           checklistStatus: { ...statuses },
+          meetingTitle: input?.meetingTitle?.trim() || undefined,
+          attendees: input?.attendees?.trim() || undefined,
+          meetingConclusion: input?.meetingConclusion?.trim() || undefined,
+          issueRegistry,
         };
 
         set((state) => ({
@@ -254,6 +366,20 @@ export const useBlueprintStore = create<BlueprintStore>()(
         set((state) => ({
           reviewSnapshots: state.reviewSnapshots.filter((s) => s.id !== id),
         })),
+
+      compareSnapshot: (snapshotId) => {
+        const state = get();
+        const snap = state.reviewSnapshots.find((s) => s.id === snapshotId);
+        if (!snap) return null;
+        const result = compareSnapshotWithCurrent(
+          snap,
+          state.getChecklist(),
+          state.reviewNotes,
+          state.checklistStatus
+        );
+        result.scoreChange = state.getDiagnosis().overallScore - snap.overallScore;
+        return result;
+      },
 
       getAllRooms: () => getAllRoomsOrdered(get().floors),
 

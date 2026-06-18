@@ -37,7 +37,8 @@ export default function BlueprintPage() {
     updateRoom,
     removeRoom,
     selectRoom,
-    importJSONBlueprint,
+    previewImportJSONBlueprint,
+    confirmImportJSONBlueprint,
   } = useBlueprintStore();
 
   const [expandedFloors, setExpandedFloors] = useState<Set<string>>(new Set());
@@ -148,7 +149,7 @@ export default function BlueprintPage() {
         setImportStep('mapping');
         setImportResult(null);
       } else {
-        const result = importJSONBlueprint(text);
+        const result = previewImportJSONBlueprint(text);
         setImportResult(result);
         setImportStep('result');
       }
@@ -164,7 +165,7 @@ export default function BlueprintPage() {
     fieldMappings.forEach((m) => {
       mappings[m.sourceKey] = m.targetKey;
     });
-    const result = importJSONBlueprint(importPreviewText, mappings);
+    const result = previewImportJSONBlueprint(importPreviewText, mappings);
     setImportResult(result);
     setImportStep('result');
   };
@@ -204,6 +205,12 @@ export default function BlueprintPage() {
   };
 
   const handleConfirmImport = () => {
+    if (!importResult?.success) return;
+    const mappings: ImportConfirmedMappings = {};
+    fieldMappings.forEach((m) => {
+      mappings[m.sourceKey] = m.targetKey;
+    });
+    confirmImportJSONBlueprint(importPreviewText, Object.keys(mappings).length > 0 ? mappings : undefined);
     closeImportModal();
   };
 

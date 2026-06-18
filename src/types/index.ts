@@ -130,6 +130,34 @@ export interface ReviewSnapshot {
   totalIssueCount: number;
   reviewNotes: ReviewNotesMap;
   checklistStatus: ChecklistStatusMap;
+  meetingTitle?: string;
+  attendees?: string;
+  meetingConclusion?: string;
+  issueRegistry: { id: string; category: IssueCategory; description: string }[];
+}
+
+export interface SnapshotComparison {
+  scoreChange: number;
+  newIssues: { id: string; category: IssueCategory; description: string }[];
+  resolvedIssues: { id: string; category: IssueCategory; description: string }[];
+  statusChanges: {
+    id: string;
+    description: string;
+    from: ChecklistStatus;
+    to: ChecklistStatus;
+  }[];
+  noteChanges: {
+    id: string;
+    description: string;
+    oldNote: string;
+    newNote: string;
+  }[];
+}
+
+export interface SnapshotCreateInput {
+  meetingTitle?: string;
+  attendees?: string;
+  meetingConclusion?: string;
 }
 
 export interface FieldMapping {
